@@ -80,7 +80,7 @@ test.beforeAll(async () => {
  * part of the interaction rather than test scaffolding.
  */
 async function startBranchFrom(label: string) {
-  await page.getByText(label, { exact: true }).hover();
+  await node(label).hover();
   await page.getByRole("button", { name: `Branch from ${label}` }).click();
 }
 

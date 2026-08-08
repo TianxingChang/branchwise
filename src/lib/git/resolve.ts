@@ -296,3 +296,70 @@ export function reparentAnnotations(
 
   return next;
 }
+
+/**
+ * Whether re-parenting `child` onto `parent` would close a loop.
+ *
+ * Checked before the edge is written rather than repaired afterwards: silently
+ * re-rooting a node the user just dragged would look like the drag failed.
+ */
+export function wouldCreateCycle(
+  annotations: Record<string, BranchAnnotation>,
+  child: string,
+  parent: string
+): boolean {
+  if (child === parent) {
+    return true;
+  }
+
+  const visited = new Set<string>();
+  let cursor: string | null = parent;
+
+  while (cursor !== null) {
+    if (cursor === child) {
+      return true;
+    }
+    if (visited.has(cursor)) {
+      return false;
+    }
+    visited.add(cursor);
+    cursor = annotations[cursor]?.parent ?? null;
+  }
+
+  return false;
+}
+
+/**
+ * Every node beneath `id` in the resolved tree.
+ *
+ * Used to keep a node's own descendants out of its list of candidate parents —
+ * choosing one would be a loop.
+ */
+export function descendantNodeIds(
+  nodes: Pick<CanvasNode, "id" | "parentId">[],
+  id: string
+): Set<string> {
+  const children = new Map<string, string[]>();
+  for (const node of nodes) {
+    if (node.parentId !== null) {
+      const siblings = children.get(node.parentId) ?? [];
+      siblings.push(node.id);
+      children.set(node.parentId, siblings);
+    }
+  }
+
+  const found = new Set<string>();
+  const queue = [id];
+
+  while (queue.length > 0) {
+    const current = queue.shift() as string;
+    for (const child of children.get(current) ?? []) {
+      if (!found.has(child)) {
+        found.add(child);
+        queue.push(child);
+      }
+    }
+  }
+
+  return found;
+}

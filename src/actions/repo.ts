@@ -50,3 +50,11 @@ export function removeWorktree(input: {
 export function pruneWorktrees(path: string): Promise<{ ok: true }> {
   return ipc.client.repo.prune({ path });
 }
+
+export function renameBranch(input: {
+  from: string;
+  path: string;
+  to: string;
+}): Promise<{ branch: string }> {
+  return ipc.client.repo.rename(input);
+}

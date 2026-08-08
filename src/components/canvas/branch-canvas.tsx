@@ -1,7 +1,9 @@
 import {
   Background,
   BackgroundVariant,
+  type Connection,
   type Edge,
+  type FinalConnectionState,
   type Node,
   ReactFlow,
   ReactFlowProvider,
@@ -64,7 +66,10 @@ function CanvasInner({ nodes, projectFolder, selectedId }: BranchCanvasProps) {
   const selectNode = useRepoStore((state) => state.selectNode);
   const createBranch = useRepoStore((state) => state.createBranch);
   const deleteNode = useRepoStore((state) => state.deleteNode);
+  const renameBranch = useRepoStore((state) => state.renameBranch);
+  const setParent = useRepoStore((state) => state.setParent);
 
+  const [renamingId, setRenamingId] = useState<string | null>(null);
   const [draftParentId, setDraftParentId] = useState<string | null>(null);
   const [parentDirtyCount, setParentDirtyCount] = useState<number | null>(null);
   const [pendingDelete, setPendingDelete] = useState<CanvasNode | null>(null);
@@ -115,7 +120,90 @@ function CanvasInner({ nodes, projectFolder, selectedId }: BranchCanvasProps) {
     };
   }, [byId, draftParentId, projectFolder]);
 
-  const cancelDraft = useCallback(() => setDraftParentId(null), []);
+  const cancelDraft = useCallback(() => {
+    setDraftParentId(null);
+    setRenamingId(null);
+  }, []);
+
+  const commitRename = useCallback(
+    async (name: string) => {
+      const node = renamingId ? byId.get(renamingId) : null;
+      setRenamingId(null);
+      if (!node?.branch || name === node.branch) {
+        return;
+      }
+
+      const result = await renameBranch(projectFolder, node.branch, name);
+      if (!result.ok) {
+        setError(result.error);
+      }
+    },
+    [byId, projectFolder, renameBranch, renamingId]
+  );
+
+  /**
+   * Re-parenting works two ways, because both read as the same intent: drag the
+   * parent end of an existing edge onto another node, or draw a fresh edge from
+   * a prospective parent onto the child. Either makes it a `user` edge, which
+   * is never re-inferred afterwards.
+   */
+  const applyReparent = useCallback(
+    (connection: Connection) => {
+      const child = byId.get(connection.target);
+      const parent = byId.get(connection.source);
+
+      if (!(child?.branch && parent?.branch)) {
+        setError(
+          "Only branches can be re-parented; a detached worktree cannot."
+        );
+        return;
+      }
+
+      const result = setParent(projectFolder, child.branch, parent.branch);
+      if (!result.ok) {
+        setError(result.error);
+      }
+    },
+    [byId, projectFolder, setParent]
+  );
+
+  const handleReconnect = useCallback(
+    (_old: Edge, connection: Connection) => applyReparent(connection),
+    [applyReparent]
+  );
+
+  /**
+   * Completes a re-parent when the drag ends anywhere over the target node.
+   *
+   * Requiring a hit on the handle itself means aiming at a six-pixel invisible
+   * dot; the whole card is the honest target.
+   */
+  const handleConnectEnd = useCallback(
+    (_event: MouseEvent | TouchEvent, state: FinalConnectionState) => {
+      const from = state.fromNode?.id;
+      const to = state.toNode?.id;
+      if (!(from && to) || from === to) {
+        return;
+      }
+      applyReparent({
+        source: from,
+        sourceHandle: null,
+        target: to,
+        targetHandle: null,
+      });
+    },
+    [applyReparent]
+  );
+
+  const handleNodeDoubleClick = useCallback(
+    (_event: unknown, node: { id: string }) => {
+      const target = byId.get(node.id);
+      if (target?.branch && !target.isRoot) {
+        setRenamingId(node.id);
+      }
+    },
+    [byId]
+  );
 
   const commitDraft = useCallback(
     async (name: string) => {
@@ -203,10 +291,12 @@ function CanvasInner({ nodes, projectFolder, selectedId }: BranchCanvasProps) {
       displayNodes.map((node) => ({
         data: {
           isDraft: node.id === DRAFT_ID,
+          isRenaming: node.id === renamingId,
           isSelected: node.id === selectedId,
           node,
           onCancelDraft: cancelDraft,
           onCommitDraft: commitDraft,
+          onCommitRename: commitRename,
           onDelete: () => setPendingDelete(node),
           onStartChild: () => setDraftParentId(node.id),
           parentDirtyCount,
@@ -223,10 +313,12 @@ function CanvasInner({ nodes, projectFolder, selectedId }: BranchCanvasProps) {
     [
       cancelDraft,
       commitDraft,
+      commitRename,
       displayNodes,
       parentDirtyCount,
       positions,
       projectFolder,
+      renamingId,
       selectedId,
     ]
   );
@@ -237,6 +329,9 @@ function CanvasInner({ nodes, projectFolder, selectedId }: BranchCanvasProps) {
         .filter((node) => node.parentId !== null)
         .map((node) => ({
           id: `${node.parentId}->${node.id}`,
+          // Only the parent end moves: re-parenting means choosing a new
+          // parent for this child, never handing the child to someone else.
+          reconnectable: node.id === DRAFT_ID ? false : ("source" as const),
           source: node.parentId as string,
           style: { opacity: EDGE_OPACITY[node.parentSource] },
           target: node.id,
@@ -256,6 +351,7 @@ function CanvasInner({ nodes, projectFolder, selectedId }: BranchCanvasProps) {
 
   const handlePaneClick = useCallback(() => {
     setDraftParentId(null);
+    setRenamingId(null);
     selectNode(projectFolder, null);
   }, [projectFolder, selectNode]);
 
@@ -281,12 +377,15 @@ function CanvasInner({ nodes, projectFolder, selectedId }: BranchCanvasProps) {
         maxZoom={1.75}
         minZoom={0.25}
         nodes={flowNodes}
-        nodesConnectable={false}
+        nodesConnectable
         nodesDraggable={false}
         nodeTypes={nodeTypes}
+        onConnectEnd={handleConnectEnd}
         onlyRenderVisibleElements={false}
         onNodeClick={handleNodeClick}
+        onNodeDoubleClick={handleNodeDoubleClick}
         onPaneClick={handlePaneClick}
+        onReconnect={handleReconnect}
         panOnScroll
         selectionOnDrag={false}
         zoomOnDoubleClick={false}

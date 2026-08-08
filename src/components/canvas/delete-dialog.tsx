@@ -49,7 +49,7 @@ export default function DeleteDialog({
       })
       .catch(() => {
         if (active) {
-          setStatus({ dirtyCount: 0, merged: false });
+          setStatus({ ahead: 0, behind: 0, dirtyCount: 0, merged: false });
         }
       });
 

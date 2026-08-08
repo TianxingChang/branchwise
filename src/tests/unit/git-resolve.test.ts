@@ -1,11 +1,13 @@
 import { describe, expect, test } from "vitest";
 import {
+  descendantNodeIds,
   diffSnapshots,
   isEmptyDiff,
   migrateAnnotations,
   type ResolveInput,
   reparentAnnotations,
   resolveNodeTree,
+  wouldCreateCycle,
 } from "@/lib/git/resolve";
 import type { BranchAnnotation, WorktreeEntry } from "@/types/branch";
 
@@ -351,5 +353,78 @@ describe("reparentAnnotations", () => {
 
   test("is safe for a branch that was never annotated", () => {
     expect(reparentAnnotations(annotations, "nope")).toEqual(annotations);
+  });
+});
+
+describe("wouldCreateCycle", () => {
+  const annotations: Record<string, BranchAnnotation> = {
+    "feat/a": { parent: "main", parentSource: "reflog" },
+    "feat/b": { parent: "feat/a", parentSource: "reflog" },
+    "feat/c": { parent: "feat/b", parentSource: "reflog" },
+  };
+
+  test("rejects a branch as its own parent", () => {
+    expect(wouldCreateCycle(annotations, "feat/a", "feat/a")).toBe(true);
+  });
+
+  test("rejects parenting onto a descendant", () => {
+    expect(wouldCreateCycle(annotations, "feat/a", "feat/c")).toBe(true);
+  });
+
+  test("allows parenting onto an unrelated branch", () => {
+    expect(wouldCreateCycle(annotations, "feat/c", "main")).toBe(false);
+  });
+
+  test("allows parenting onto an ancestor's sibling", () => {
+    const withSibling = {
+      ...annotations,
+      "feat/side": { parent: "main", parentSource: "reflog" as const },
+    };
+
+    expect(wouldCreateCycle(withSibling, "feat/c", "feat/side")).toBe(false);
+  });
+
+  test("terminates on an already-corrupt chain", () => {
+    const looped: Record<string, BranchAnnotation> = {
+      x: { parent: "y", parentSource: "user" },
+      y: { parent: "x", parentSource: "user" },
+    };
+
+    expect(wouldCreateCycle(looped, "z", "x")).toBe(false);
+  });
+});
+
+describe("descendantNodeIds", () => {
+  const tree = [
+    { id: "root", parentId: null },
+    { id: "a", parentId: "root" },
+    { id: "b", parentId: "a" },
+    { id: "c", parentId: "b" },
+    { id: "side", parentId: "root" },
+  ];
+
+  test("collects the whole subtree", () => {
+    expect([...descendantNodeIds(tree, "a")].sort()).toEqual(["b", "c"]);
+  });
+
+  test("excludes the node itself", () => {
+    expect(descendantNodeIds(tree, "a").has("a")).toBe(false);
+  });
+
+  test("returns nothing for a leaf", () => {
+    expect(descendantNodeIds(tree, "c").size).toBe(0);
+  });
+
+  test("does not wander into a sibling branch", () => {
+    expect(descendantNodeIds(tree, "a").has("side")).toBe(false);
+  });
+
+  test("terminates on a corrupt cycle", () => {
+    const looped = [
+      { id: "x", parentId: "y" },
+      { id: "y", parentId: "x" },
+    ];
+
+    expect(descendantNodeIds(looped, "x").size).toBeLessThanOrEqual(2);
   });
 });

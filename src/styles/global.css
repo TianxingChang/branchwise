@@ -185,8 +185,12 @@
     stroke: var(--bw-muted);
   }
 
+  /* Invisible, but still a target — dragging from a node's outgoing handle
+     onto another node is how re-parenting works. The card is painted after the
+     handles, so without the z-index it swallows the drag and the canvas pans
+     instead. */
   .branchwise-canvas .react-flow__handle {
-    pointer-events: none;
+    z-index: 5;
     opacity: 0;
   }
 

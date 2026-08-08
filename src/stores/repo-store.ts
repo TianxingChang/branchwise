@@ -4,6 +4,7 @@ import {
   createWorktree,
   initRepo,
   removeWorktree,
+  renameBranch,
   resolveRepo,
   watchRepo,
 } from "@/actions/repo";
@@ -14,6 +15,7 @@ import {
   migrateAnnotations,
   reparentAnnotations,
   resolveNodeTree,
+  wouldCreateCycle,
 } from "@/lib/git/resolve";
 import type {
   CanvasNode,
@@ -63,10 +65,20 @@ interface RepoStoreState {
   initialize: (folder: string) => Promise<void>;
   open: (folder: string) => Promise<void>;
   projects: Record<string, ProjectState>;
+  renameBranch: (
+    folder: string,
+    from: string,
+    to: string
+  ) => Promise<MutationResult>;
   selectNode: (folder: string, worktreePath: string | null) => void;
   setPanelCollapsed: (folder: string, collapsed: boolean) => void;
   setPanelTab: (folder: string, tab: PanelTab) => void;
   setPanelWidth: (folder: string, width: number) => void;
+  setParent: (
+    folder: string,
+    childBranch: string,
+    parentBranch: string
+  ) => MutationResult;
 }
 
 const EMPTY: ProjectState = {
@@ -309,6 +321,15 @@ export const useRepoStore = create<RepoStoreState>()((set, get) => {
 
     projects: {},
 
+    renameBranch: async (folder, from, to) => {
+      try {
+        await renameBranch({ from, path: folder, to });
+        return { ok: true };
+      } catch (error) {
+        return { error: messageFor(error), ok: false };
+      }
+    },
+
     selectNode: (folder, worktreePath) => {
       mutateDoc(folder, (doc) =>
         doc.selectedWorktree === worktreePath
@@ -337,6 +358,28 @@ export const useRepoStore = create<RepoStoreState>()((set, get) => {
         ...doc,
         panel: { ...doc.panel, width: clamped },
       }));
+    },
+
+    setParent: (folder, childBranch, parentBranch) => {
+      const doc = get().projects[folder]?.doc;
+      if (!doc) {
+        return { error: "The repository is not ready yet.", ok: false };
+      }
+      if (wouldCreateCycle(doc.branches, childBranch, parentBranch)) {
+        return {
+          error: `${childBranch} cannot hang off its own descendant.`,
+          ok: false,
+        };
+      }
+
+      mutateDoc(folder, (current) => ({
+        ...current,
+        branches: {
+          ...current.branches,
+          [childBranch]: { parent: parentBranch, parentSource: "user" },
+        },
+      }));
+      return { ok: true };
     },
   };
 });

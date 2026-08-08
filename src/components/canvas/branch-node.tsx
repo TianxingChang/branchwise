@@ -17,10 +17,12 @@ import { cn } from "@/utils/tailwind";
 export type BranchNodeData = {
   /** A draft node is the branch being named; it has no worktree yet. */
   isDraft: boolean;
+  isRenaming: boolean;
   isSelected: boolean;
   node: CanvasNode;
   onCancelDraft: () => void;
   onCommitDraft: (name: string) => void;
+  onCommitRename: (name: string) => void;
   onDelete: () => void;
   onStartChild: () => void;
   parentDirtyCount: number | null;
@@ -36,14 +38,16 @@ export function branchLabel(node: CanvasNode): string {
 function BranchNodeCard({ data }: NodeProps & { data: BranchNodeData }) {
   const { isSelected, node, projectFolder } = data;
 
-  if (data.isDraft) {
+  if (data.isDraft || data.isRenaming) {
     return (
       <div className="relative" style={CARD_SIZE}>
         <Handle position={Position.Left} type="target" />
+        <Handle position={Position.Right} type="source" />
         <BranchNameEditor
+          initialValue={data.isRenaming ? (node.branch ?? "") : ""}
           onCancel={data.onCancelDraft}
-          onCommit={data.onCommitDraft}
-          parentDirtyCount={data.parentDirtyCount}
+          onCommit={data.isRenaming ? data.onCommitRename : data.onCommitDraft}
+          parentDirtyCount={data.isDraft ? data.parentDirtyCount : null}
         />
       </div>
     );
@@ -165,16 +169,19 @@ function BranchCard({
 
         {/*
           The signature affordance: hovering pulls a dashed stub and a + out of
-          the right edge, so branching reads as the connector physically growing.
+          the right edge, so branching reads as the connector physically
+          growing. Offset clear of the source handle on the card's edge —
+          overlapping it would let this button swallow the drag that re-parents
+          a node.
         */}
-        <div className="pointer-events-none absolute top-1/2 -right-11 flex -translate-y-1/2 items-center opacity-0 transition-opacity duration-150 group-hover/node:pointer-events-auto group-hover/node:opacity-100">
+        <div className="pointer-events-none absolute top-1/2 -right-12 flex -translate-y-1/2 items-center pl-2 opacity-0 transition-opacity duration-150 group-hover/node:opacity-100">
           <span
             aria-hidden
-            className="h-px w-5 border-bw-edge border-t border-dashed"
+            className="h-px w-4 border-bw-edge border-t border-dashed"
           />
           <button
             aria-label={`Branch from ${branchLabel(node)}`}
-            className="flex size-6 items-center justify-center rounded-full border border-bw-hairline bg-bw-surface text-bw-muted shadow-[0_1px_3px_rgba(0,0,0,0.08)] transition-colors hover:border-bw-accent/40 hover:text-bw-accent"
+            className="pointer-events-none flex size-6 items-center justify-center rounded-full border border-bw-hairline bg-bw-surface text-bw-muted shadow-[0_1px_3px_rgba(0,0,0,0.08)] transition-colors hover:border-bw-accent/40 hover:text-bw-accent group-hover/node:pointer-events-auto"
             onClick={handleStartChild}
             title="Create a branch and worktree from here"
             type="button"
@@ -193,19 +200,22 @@ function BranchCard({
  * parent's last commit either way.
  */
 function BranchNameEditor({
+  initialValue,
   onCancel,
   onCommit,
   parentDirtyCount,
 }: {
+  initialValue: string;
   onCancel: () => void;
   onCommit: (name: string) => void;
   parentDirtyCount: number | null;
 }) {
-  const [value, setValue] = useState("");
+  const [value, setValue] = useState(initialValue);
   const inputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     inputRef.current?.focus();
+    inputRef.current?.select();
   }, []);
 
   const commit = useCallback(() => {

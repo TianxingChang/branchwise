@@ -3,6 +3,8 @@ import { normalizeBranchName, slugForBranch } from "@/lib/git/naming";
 import type { RepoInfo, WorktreeStatus } from "@/types/branch";
 import { runGit, tryGit } from "./command";
 
+const WHITESPACE = /\s+/;
+
 export class WorktreeOperationError extends Error {
   constructor(message: string, options?: ErrorOptions) {
     super(message, options);
@@ -128,6 +130,9 @@ export async function worktreeStatus(
       : porcelain.split("\n").filter((line) => line.trim().length > 0).length;
 
   let merged = false;
+  let ahead = 0;
+  let behind = 0;
+
   if (input.branch && input.parentBranch) {
     const ancestor = await tryGit(
       repo.root,
@@ -135,9 +140,61 @@ export async function worktreeStatus(
       { queueKey: repo.root }
     );
     merged = ancestor !== null;
+
+    // `--left-right --count` over a symmetric difference gives
+    // "<behind>\t<ahead>" relative to the parent.
+    const counts = await tryGit(
+      repo.root,
+      [
+        "rev-list",
+        "--left-right",
+        "--count",
+        `${input.parentBranch}...${input.branch}`,
+      ],
+      { queueKey: repo.root }
+    );
+
+    if (counts !== null) {
+      const [left, right] = counts.trim().split(WHITESPACE);
+      behind = Number.parseInt(left ?? "0", 10) || 0;
+      ahead = Number.parseInt(right ?? "0", 10) || 0;
+    }
   }
 
-  return { dirtyCount, merged };
+  return { ahead, behind, dirtyCount, merged };
+}
+
+export async function renameBranch(
+  repo: RepoInfo,
+  input: { from: string; to: string }
+): Promise<string> {
+  const name = normalizeBranchName(input.to);
+  if (name.length === 0) {
+    throw new WorktreeOperationError("Enter a branch name.");
+  }
+  if (name === input.from) {
+    return name;
+  }
+  if (await branchExists(repo, name)) {
+    throw new WorktreeOperationError(
+      `A branch named "${name}" already exists.`
+    );
+  }
+
+  try {
+    // The worktree directory keeps its old name; the path is the node's
+    // identity, which is what lets the parent edge survive the rename.
+    await runGit(repo.root, ["branch", "-m", input.from, name], {
+      queueKey: repo.root,
+    });
+  } catch (error) {
+    throw new WorktreeOperationError(
+      error instanceof Error ? error.message : "Could not rename the branch.",
+      { cause: error }
+    );
+  }
+
+  return name;
 }
 
 export async function pruneWorktrees(repo: RepoInfo): Promise<void> {

@@ -56,7 +56,11 @@ export default function ProjectWorkspace({ project }: { project: ProjectRef }) {
       {selected ? (
         <NodePanel
           node={selected}
+          nodes={nodes}
           panel={doc.panel}
+          parentBranch={
+            nodes.find((node) => node.id === selected.parentId)?.branch ?? null
+          }
           projectFolder={project.path}
         />
       ) : null}

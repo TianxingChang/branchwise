@@ -10,6 +10,7 @@ import {
   deleteBranch,
   pruneWorktrees,
   removeWorktree,
+  renameBranch,
   worktreeStatus,
 } from "./mutate";
 import { initRepo, resolveRepo } from "./repo";
@@ -169,5 +170,26 @@ export const prune = os
       await pruneWorktrees(repo);
       await refresh(repo.root);
       return { ok: true as const };
+    })
+  );
+
+export const rename = os
+  .input(
+    z.object({
+      from: z.string().min(1),
+      path: z.string().min(1),
+      to: z.string().min(1),
+    })
+  )
+  .output(z.object({ branch: z.string() }))
+  .handler(({ input }) =>
+    expose(async () => {
+      const repo = await requireRepo(input.path);
+      const branch = await renameBranch(repo, {
+        from: input.from,
+        to: input.to,
+      });
+      await refresh(repo.root);
+      return { branch };
     })
   );

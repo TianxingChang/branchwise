@@ -18,5 +18,8 @@ export default defineConfig({
   use: {
     trace: "on-first-retry",
   },
-  workers: process.env.CI ? 1 : undefined,
+  // Always one worker: each spec launches a full Electron app and drives git
+  // against its own repository. Running them side by side makes them contend
+  // for CPU and produces timing flakes that say nothing about the code.
+  workers: 1,
 });

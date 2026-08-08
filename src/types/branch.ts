@@ -50,6 +50,10 @@ export const repoSnapshotSchema = z.object({
 });
 
 export const worktreeStatusSchema = z.object({
+  /** Commits on this branch that the parent does not have. */
+  ahead: z.number().int().min(0),
+  /** Commits on the parent that this branch does not have. */
+  behind: z.number().int().min(0),
   /** Number of uncommitted entries in the worktree. */
   dirtyCount: z.number().int().min(0),
   /** True when the branch is already contained in its parent. */
