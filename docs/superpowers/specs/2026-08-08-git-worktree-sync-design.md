@@ -208,8 +208,26 @@ a case no amount of reading documentation would have surfaced.
 
 ## Staging
 
-| Stage | Scope | Standalone value |
+| Stage | Scope | Status |
 | --- | --- | --- |
-| 1 | Read-only sync: repo resolution, worktree listing, watcher, parent inference, rendering. No writes to git. | Proves the hard half — live updates and inference. An agent's new worktree appears immediately. |
-| 2 | Canvas → git: create child worktree, merge-aware delete. | Closes the loop. |
-| 3 | Ahead/behind and dirty badges, drag-to-re-parent, rename. | Polish. |
+| 1 | Read-only sync: repo resolution, worktree listing, watcher, parent inference, rendering. No writes to git. | Done |
+| 2 | Canvas → git: create child worktree, merge-aware delete. | Done |
+| 3 | Ahead/behind and dirty badges, re-parent, rename. | Done |
+
+## What changed during implementation
+
+- **Re-parenting got a panel control.** The spec called for dragging an edge.
+  That gesture works, but its target is a six-pixel invisible handle whose
+  centre is painted over by the node card — unreliable enough that an automated
+  driver could not hit it consistently, which is a fair proxy for a person. The
+  drag remains; the panel's parent picker is the dependable path and is the only
+  one that can show which choices are legal.
+- **Two template bugs had to be fixed first.** The oRPC listener was registered
+  after the window was created, so a packaged renderer's MessagePort was dropped
+  and every IPC call hung. And `ipcContext.mainWindowContext` captured the window
+  when the middleware was defined — at handler-module import time — which both
+  prevented registering the router early and would have left handlers holding a
+  destroyed window after a macOS close-and-reopen.
+- **Git errors were being swallowed.** oRPC masks anything that is not an
+  `ORPCError`, so "a branch named X already exists" reached the user as
+  "Internal server error".
