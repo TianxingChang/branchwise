@@ -73,6 +73,14 @@ test.beforeAll(async () => {
   await page.reload();
 });
 
+/**
+ * Scoped to the canvas: a selected branch's name also appears in the panel
+ * header, and an unscoped text match would hit both.
+ */
+function node(label: string) {
+  return page.locator(".branchwise-canvas").getByText(label, { exact: true });
+}
+
 test.afterAll(async () => {
   await app?.close();
   if (workspace) {
@@ -81,13 +89,13 @@ test.afterAll(async () => {
 });
 
 test("renders the repository's main worktree as the root node", async () => {
-  await expect(page.getByText("main", { exact: true })).toBeVisible({
+  await expect(node("main")).toBeVisible({
     timeout: 20_000,
   });
 });
 
 test("shows a worktree created outside the app, live", async () => {
-  await expect(page.getByText("main", { exact: true })).toBeVisible({
+  await expect(node("main")).toBeVisible({
     timeout: 20_000,
   });
 
@@ -102,25 +110,25 @@ test("shows a worktree created outside the app, live", async () => {
     "main"
   );
 
-  await expect(page.getByText("feat/live", { exact: true })).toBeVisible({
+  await expect(node("feat/live")).toBeVisible({
     timeout: 20_000,
   });
 });
 
 test("drops the node again when the worktree is removed outside the app", async () => {
-  await expect(page.getByText("feat/live", { exact: true })).toBeVisible({
+  await expect(node("feat/live")).toBeVisible({
     timeout: 20_000,
   });
 
   await git(repoPath, "worktree", "remove", path.join(workspace, "wt-live"));
 
-  await expect(page.getByText("feat/live", { exact: true })).toBeHidden({
+  await expect(node("feat/live")).toBeHidden({
     timeout: 20_000,
   });
 });
 
 test("opens the panel for a node and keeps it through an external change", async () => {
-  await page.getByText("main", { exact: true }).click();
+  await node("main").click();
   await expect(
     page.getByRole("button", { name: "Hide branch panel" })
   ).toBeVisible();
@@ -135,7 +143,7 @@ test("opens the panel for a node and keeps it through an external change", async
     "main"
   );
 
-  await expect(page.getByText("feat/second", { exact: true })).toBeVisible({
+  await expect(node("feat/second")).toBeVisible({
     timeout: 20_000,
   });
 

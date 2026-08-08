@@ -1,0 +1,2230 @@
+<!doctype html>
+<html lang="en" data-theme="auto">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>branchwise · atlas</title>
+<style>
+/* ─────────────────────────────────────────────────────────────────────────
+   branchwise atlas
+   The palette is the product's own (src/styles/global.css --bw-*), extended
+   to dark. The discipline the atlas prescribes for the app in §state, it
+   obeys itself: colour encodes STATE, never CATEGORY. Lanes are position and
+   a mono label. Green/blue/amber/red mean done/next/decide/danger, nowhere
+   else.
+   ───────────────────────────────────────────────────────────────────────── */
+:root{
+  --paper:#f5f5f3; --surface:#ffffff; --subtle:#f0efeb;
+  --hairline:#e6e5e1; --edge:#cfcec8;
+  --ink:#1a1a18; --ink-2:#4a4944; --muted:#8c8b84;
+  --done:#3e9e63; --next:#2f6bff; --decide:#c98a12; --danger:#c0453a;
+  --shadow-1:0 1px 2px rgba(26,26,24,.05);
+  --shadow-2:0 6px 24px rgba(26,26,24,.07);
+  --mono:ui-monospace,"SF Mono",SFMono-Regular,Menlo,"Cascadia Mono",monospace;
+  --sans:-apple-system,BlinkMacSystemFont,"Segoe UI",Inter,system-ui,sans-serif;
+  --rail:264px;
+}
+:root[data-theme=dark]{
+  --paper:#131519; --surface:#1a1d22; --subtle:#20242a;
+  --hairline:#2a2e35; --edge:#3a3f47;
+  --ink:#e9e7e2; --ink-2:#b8b5ae; --muted:#83817b;
+  --done:#5cbb82; --next:#6d9bff; --decide:#e0aa3c; --danger:#e0685c;
+  --shadow-1:0 1px 2px rgba(0,0,0,.4);
+  --shadow-2:0 8px 28px rgba(0,0,0,.45);
+}
+@media (prefers-color-scheme:dark){
+  :root:not([data-theme=light]){
+    --paper:#131519; --surface:#1a1d22; --subtle:#20242a;
+    --hairline:#2a2e35; --edge:#3a3f47;
+    --ink:#e9e7e2; --ink-2:#b8b5ae; --muted:#83817b;
+    --done:#5cbb82; --next:#6d9bff; --decide:#e0aa3c; --danger:#e0685c;
+    --shadow-1:0 1px 2px rgba(0,0,0,.4);
+    --shadow-2:0 8px 28px rgba(0,0,0,.45);
+  }
+}
+*{box-sizing:border-box}
+html{scroll-behavior:smooth;scroll-padding-top:76px}
+@media (prefers-reduced-motion:reduce){html{scroll-behavior:auto} *{animation-duration:.01ms!important;transition-duration:.01ms!important}}
+body{
+  margin:0;background:var(--paper);color:var(--ink);
+  font-family:var(--sans);font-size:15px;line-height:1.62;
+  -webkit-font-smoothing:antialiased;
+}
+h1,h2,h3,h4{margin:0;font-weight:560;letter-spacing:-.015em;line-height:1.22}
+p{margin:0 0 .85em}
+a{color:inherit}
+code,kbd,.m{font-family:var(--mono)}
+
+/* ── rail ───────────────────────────────────────────────────────────────── */
+.rail{
+  position:sticky;top:0;z-index:40;
+  display:flex;align-items:center;gap:18px;
+  height:52px;padding:0 22px;
+  background:color-mix(in srgb,var(--paper) 88%,transparent);
+  backdrop-filter:saturate(1.4) blur(12px);
+  border-bottom:1px solid var(--hairline);
+}
+.mark{font-family:var(--mono);font-size:13px;letter-spacing:-.02em;white-space:nowrap}
+.mark b{font-weight:600}
+.mark span{color:var(--muted)}
+.rail nav{display:flex;gap:2px;overflow-x:auto;scrollbar-width:none;flex:1}
+.rail nav::-webkit-scrollbar{display:none}
+.rail nav a{
+  font-family:var(--mono);font-size:11.5px;text-decoration:none;color:var(--muted);
+  padding:5px 8px;border-radius:6px;white-space:nowrap;transition:background .12s,color .12s;
+}
+.rail nav a:hover{color:var(--ink);background:var(--subtle)}
+.rail nav a:focus-visible,button:focus-visible,.node:focus-visible{outline:2px solid var(--next);outline-offset:2px}
+.tog{
+  font-family:var(--mono);font-size:11px;color:var(--muted);background:transparent;
+  border:1px solid var(--hairline);border-radius:6px;padding:4px 9px;cursor:pointer;
+}
+.tog:hover{color:var(--ink);border-color:var(--edge)}
+
+/* ── layout ─────────────────────────────────────────────────────────────── */
+main{max-width:1220px;margin:0 auto;padding:0 22px 120px}
+section{padding-top:72px}
+.sechead{display:flex;align-items:baseline;gap:12px;margin-bottom:6px;flex-wrap:wrap}
+.sechead h2{font-size:23px}
+.sechead .cmd{font-family:var(--mono);font-size:11.5px;color:var(--muted)}
+.lede{max-width:74ch;color:var(--ink-2);font-size:14.5px;margin-bottom:26px}
+
+/* ── hero ───────────────────────────────────────────────────────────────── */
+.hero{padding-top:56px;padding-bottom:8px}
+.hero .kicker{font-family:var(--mono);font-size:11.5px;color:var(--muted);margin-bottom:18px}
+.hero h1{font-size:clamp(30px,4.6vw,50px);letter-spacing:-.035em;max-width:20ch}
+.hero h1 em{font-style:normal;color:var(--next)}
+.hero .sub{max-width:70ch;font-size:16.5px;color:var(--ink-2);margin-top:20px}
+.bet{
+  margin-top:32px;display:grid;gap:1px;background:var(--hairline);
+  border:1px solid var(--hairline);border-radius:12px;overflow:hidden;
+  grid-template-columns:repeat(auto-fit,minmax(240px,1fr));
+}
+.bet div{background:var(--surface);padding:16px 18px}
+.bet h4{font-family:var(--mono);font-size:11px;color:var(--muted);font-weight:500;margin-bottom:7px;text-transform:uppercase;letter-spacing:.08em}
+.bet p{margin:0;font-size:14px;color:var(--ink-2)}
+.bet strong{color:var(--ink);font-weight:560}
+
+/* ── porcelain block: the "now" readout, styled as git plumbing output ──── */
+.porcelain{
+  font-family:var(--mono);font-size:12.5px;line-height:1.85;
+  background:var(--surface);border:1px solid var(--hairline);border-radius:12px;
+  padding:18px 20px;overflow-x:auto;box-shadow:var(--shadow-1);
+}
+.porcelain .k{color:var(--muted)}
+.porcelain .v{color:var(--ink)}
+.porcelain .ok{color:var(--done)}
+.porcelain .no{color:var(--danger)}
+.porcelain .hm{color:var(--decide)}
+.porcelain hr{border:0;border-top:1px solid var(--hairline);margin:12px 0}
+.stamp{font-family:var(--mono);font-size:11px;color:var(--muted);margin-top:10px}
+
+/* ── the map ────────────────────────────────────────────────────────────── */
+.mapwrap{
+  border:1px solid var(--hairline);border-radius:14px;background:var(--surface);
+  box-shadow:var(--shadow-1);overflow:hidden;
+}
+.maptools{
+  display:flex;gap:8px;align-items:center;flex-wrap:wrap;
+  padding:11px 14px;border-bottom:1px solid var(--hairline);background:var(--subtle);
+}
+.chip{
+  font-family:var(--mono);font-size:11px;color:var(--muted);cursor:pointer;
+  border:1px solid var(--hairline);background:var(--surface);border-radius:20px;padding:3px 10px;
+  transition:.12s;
+}
+.chip:hover{color:var(--ink)}
+.chip[aria-pressed=true]{background:var(--ink);color:var(--paper);border-color:var(--ink)}
+.mapscroll{overflow-x:auto;overflow-y:hidden}
+svg.map{display:block}
+svg.map .laneband{fill:var(--subtle);opacity:.5}
+svg.map .lanelabel{font-family:var(--mono);font-size:10px;fill:var(--muted);letter-spacing:.06em}
+svg.map .ranklabel{font-family:var(--mono);font-size:9.5px;fill:var(--muted)}
+svg.map .link{fill:none;stroke:var(--edge);stroke-width:1.4}
+svg.map .link.soft{stroke-dasharray:3 4;opacity:.75}
+svg.map .link.hot{stroke:var(--next);stroke-width:2}
+.node{cursor:pointer}
+.node rect.body{fill:var(--surface);stroke:var(--hairline);stroke-width:1}
+.node:hover rect.body{stroke:var(--edge)}
+.node rect.rail{stroke:none}
+.node text.id{font-family:var(--mono);font-size:9.5px;fill:var(--muted)}
+.node text.tl{font-family:var(--sans);font-size:11.5px;fill:var(--ink);font-weight:500}
+.node text.tl2{font-family:var(--sans);font-size:11.5px;fill:var(--ink-2)}
+.node.dim{opacity:.24}
+.node.sel rect.body{stroke:var(--next);stroke-width:2}
+
+/* ── timeline ───────────────────────────────────────────────────────────── */
+.gantt{border:1px solid var(--hairline);border-radius:14px;overflow:hidden;background:var(--surface);box-shadow:var(--shadow-1)}
+.gantt table{border-collapse:collapse;width:100%;font-size:12.5px}
+.gantt th{
+  font-family:var(--mono);font-weight:500;font-size:10.5px;color:var(--muted);
+  text-align:center;padding:9px 0;border-bottom:1px solid var(--hairline);background:var(--subtle);
+}
+.gantt th.lane{text-align:left;padding-left:14px;width:150px}
+.gantt td{border-bottom:1px solid var(--hairline);padding:0;height:38px;position:relative}
+.gantt td.lane{
+  font-family:var(--mono);font-size:11px;color:var(--ink);padding-left:14px;
+  border-right:1px solid var(--hairline);white-space:nowrap;
+}
+.gantt td.lane em{display:block;font-style:normal;color:var(--muted);font-size:10px}
+.gantt tr:last-child td{border-bottom:0}
+.gantt .cell{position:relative}
+.gantt .wk{position:absolute;inset:0;border-right:1px dashed var(--hairline);opacity:.6}
+.bar{
+  position:absolute;top:8px;height:22px;border-radius:6px;
+  display:flex;align-items:center;padding:0 9px;gap:6px;
+  font-family:var(--mono);font-size:10.5px;white-space:nowrap;overflow:hidden;
+}
+.bar.done{background:color-mix(in srgb,var(--done) 18%,transparent);color:var(--done);border:1px solid color-mix(in srgb,var(--done) 40%,transparent)}
+.bar.next{background:color-mix(in srgb,var(--next) 16%,transparent);color:var(--next);border:1px solid color-mix(in srgb,var(--next) 40%,transparent)}
+.bar.planned{background:var(--subtle);color:var(--ink-2);border:1px solid var(--hairline)}
+.bar.wait{background:repeating-linear-gradient(45deg,var(--subtle),var(--subtle) 5px,transparent 5px,transparent 10px);color:var(--muted);border:1px dashed var(--edge)}
+
+/* ── cards ──────────────────────────────────────────────────────────────── */
+.filters{display:flex;gap:7px;flex-wrap:wrap;margin-bottom:18px;align-items:center}
+.filters input{
+  font-family:var(--mono);font-size:12px;padding:6px 11px;border-radius:8px;
+  border:1px solid var(--hairline);background:var(--surface);color:var(--ink);min-width:190px;
+}
+.cards{display:grid;gap:12px}
+.card{
+  border:1px solid var(--hairline);border-radius:12px;background:var(--surface);
+  box-shadow:var(--shadow-1);overflow:hidden;scroll-margin-top:80px;
+}
+.card.flash{box-shadow:0 0 0 2px var(--next),var(--shadow-2)}
+.card > summary{
+  list-style:none;cursor:pointer;padding:14px 18px;display:flex;gap:14px;align-items:flex-start;
+}
+.card > summary::-webkit-details-marker{display:none}
+.card > summary:hover{background:var(--subtle)}
+.card .sid{
+  font-family:var(--mono);font-size:11px;color:var(--muted);width:44px;flex:none;padding-top:2px;
+}
+.card .stitle{flex:1;min-width:0}
+.card .stitle h3{font-size:15.5px;font-weight:560;display:flex;gap:9px;align-items:baseline;flex-wrap:wrap}
+.card .stitle .slug{font-family:var(--mono);font-size:11.5px;color:var(--muted);font-weight:400}
+.card .stitle p{margin:5px 0 0;font-size:13.5px;color:var(--ink-2)}
+.badges{display:flex;gap:6px;flex:none;align-items:center;flex-wrap:wrap;justify-content:flex-end;max-width:230px}
+.b{font-family:var(--mono);font-size:10px;padding:2px 7px;border-radius:20px;border:1px solid var(--hairline);color:var(--muted);white-space:nowrap}
+.b.done{color:var(--done);border-color:color-mix(in srgb,var(--done) 40%,transparent);background:color-mix(in srgb,var(--done) 10%,transparent)}
+.b.next{color:var(--next);border-color:color-mix(in srgb,var(--next) 40%,transparent);background:color-mix(in srgb,var(--next) 10%,transparent)}
+.b.decide{color:var(--decide);border-color:color-mix(in srgb,var(--decide) 45%,transparent);background:color-mix(in srgb,var(--decide) 10%,transparent)}
+.b.lane{color:var(--ink-2)}
+.body{padding:2px 18px 20px 76px;border-top:1px solid var(--hairline);margin-top:-1px}
+.body h4{
+  font-family:var(--mono);font-size:10.5px;color:var(--muted);text-transform:uppercase;
+  letter-spacing:.09em;font-weight:500;margin:20px 0 8px;
+}
+.body ul{margin:0;padding-left:18px}
+.body li{margin-bottom:5px;font-size:13.7px;color:var(--ink-2)}
+.body li b,.body li strong{color:var(--ink);font-weight:560}
+.body p{font-size:13.7px;color:var(--ink-2)}
+.prompt{
+  font-family:var(--mono);font-size:12px;line-height:1.7;background:var(--subtle);
+  border:1px solid var(--hairline);border-left:3px solid var(--next);border-radius:0 8px 8px 0;
+  padding:13px 15px;white-space:pre-wrap;color:var(--ink-2);position:relative;
+}
+.copy{
+  position:absolute;top:8px;right:8px;font-family:var(--mono);font-size:10px;
+  background:var(--surface);border:1px solid var(--hairline);border-radius:5px;
+  padding:3px 8px;cursor:pointer;color:var(--muted);
+}
+.copy:hover{color:var(--ink)}
+.deps{font-family:var(--mono);font-size:11.5px;color:var(--muted)}
+.deps b{color:var(--ink-2);font-weight:500}
+
+/* ── tables ─────────────────────────────────────────────────────────────── */
+.tw{overflow-x:auto;border:1px solid var(--hairline);border-radius:12px;background:var(--surface);box-shadow:var(--shadow-1)}
+table.grid{border-collapse:collapse;width:100%;font-size:13.3px;min-width:640px}
+table.grid th{
+  text-align:left;font-family:var(--mono);font-size:10.5px;font-weight:500;color:var(--muted);
+  text-transform:uppercase;letter-spacing:.08em;padding:11px 14px;
+  border-bottom:1px solid var(--hairline);background:var(--subtle);white-space:nowrap;
+}
+table.grid td{padding:11px 14px;border-bottom:1px solid var(--hairline);vertical-align:top;color:var(--ink-2)}
+table.grid tr:last-child td{border-bottom:0}
+table.grid td:first-child{color:var(--ink)}
+table.grid .m{font-size:12px}
+.tag{font-family:var(--mono);font-size:10px;padding:2px 7px;border-radius:20px;border:1px solid var(--hairline);color:var(--muted);white-space:nowrap;display:inline-block}
+.tag.settled{color:var(--done);border-color:color-mix(in srgb,var(--done) 40%,transparent)}
+.tag.open{color:var(--decide);border-color:color-mix(in srgb,var(--decide) 45%,transparent)}
+.tag.reverse{color:var(--danger);border-color:color-mix(in srgb,var(--danger) 40%,transparent)}
+.tag.hi{color:var(--danger);border-color:color-mix(in srgb,var(--danger) 40%,transparent)}
+.tag.md{color:var(--decide);border-color:color-mix(in srgb,var(--decide) 45%,transparent)}
+.tag.lo{color:var(--muted)}
+
+/* ── misc blocks ────────────────────────────────────────────────────────── */
+.note{
+  border-left:3px solid var(--decide);background:color-mix(in srgb,var(--decide) 7%,var(--surface));
+  border-radius:0 10px 10px 0;padding:14px 18px;font-size:13.8px;color:var(--ink-2);
+  border-top:1px solid var(--hairline);border-right:1px solid var(--hairline);border-bottom:1px solid var(--hairline);
+}
+.note b{color:var(--ink)}
+.rules{display:grid;gap:1px;background:var(--hairline);border:1px solid var(--hairline);border-radius:12px;overflow:hidden}
+.rules > div{background:var(--surface);padding:15px 18px}
+.rules h4{font-family:var(--mono);font-size:11px;color:var(--muted);font-weight:500;margin-bottom:8px;text-transform:uppercase;letter-spacing:.08em}
+.rules ul{margin:0;padding-left:17px}
+.rules li{font-size:13.5px;color:var(--ink-2);margin-bottom:5px}
+.rules code{font-size:12px;background:var(--subtle);padding:1px 5px;border-radius:4px}
+footer{
+  border-top:1px solid var(--hairline);margin-top:90px;padding:26px 22px 60px;
+  max-width:1220px;margin-left:auto;margin-right:auto;
+  font-family:var(--mono);font-size:11.5px;color:var(--muted);
+}
+.legend{display:flex;gap:16px;flex-wrap:wrap;font-family:var(--mono);font-size:11px;color:var(--muted);margin-top:12px}
+.legend span{display:flex;align-items:center;gap:6px}
+.sw{width:11px;height:11px;border-radius:3px;display:inline-block}
+@media (max-width:760px){
+  .card > summary{flex-wrap:wrap}
+  .badges{max-width:none;justify-content:flex-start;padding-left:58px}
+  .body{padding-left:18px}
+  section{padding-top:54px}
+}
+@media print{
+  .rail,.maptools,.filters,.copy{display:none}
+  .card{break-inside:avoid}
+  details{open:true}
+}
+</style>
+</head>
+<body>
+
+<header class="rail">
+  <div class="mark"><b>branchwise</b> <span>/ atlas</span></div>
+  <nav>
+    <a href="#thesis">thesis</a>
+    <a href="#now">now</a>
+    <a href="#map">map</a>
+    <a href="#timeline">timeline</a>
+    <a href="#work">increments</a>
+    <a href="#decisions">decisions</a>
+    <a href="#risks">risks</a>
+    <a href="#edges">edge&nbsp;cases</a>
+    <a href="#ideas">ideas</a>
+    <a href="#measured">measured</a>
+    <a href="#landscape">landscape</a>
+    <a href="#rules">rules</a>
+  </nav>
+  <button class="tog" id="themeBtn" type="button">theme</button>
+</header>
+
+<main>
+
+<!-- ═══ THESIS ═════════════════════════════════════════════════════════════ -->
+<section id="thesis" class="hero">
+  <div class="kicker">planning atlas · rev 1 · 2026-08-08 · living document</div>
+  <h1>The unit of AI-assisted work stopped being a session. It became a <em>branch of exploration</em>.</h1>
+  <p class="sub">
+    Every shipping competitor draws parallel agents as a flat list. A list is lossless only while
+    the work is independent. The moment branch B was cut from branch A because A has to land first,
+    the list throws away the one fact that decides what you do next. branchwise draws that fact —
+    and git already records it, in the reflog, so the map can be reconstructed from evidence instead
+    of maintained by hand.
+  </p>
+
+  <div class="bet">
+    <div>
+      <h4>The bet</h4>
+      <p>Past ~5 concurrent worktrees the load stops being <strong>“which agent is running”</strong> and becomes <strong>“what depends on what, and in what order does this land.”</strong></p>
+    </div>
+    <div>
+      <h4>The counter-bet</h4>
+      <p>Most trees are flat — N branches off <span class="m">main</span>. A fan of eight nodes off one root <strong>is</strong> a list, drawn with ten times the pixels. Measure depth before building on it.</p>
+    </div>
+    <div>
+      <h4>The user</h4>
+      <p>Not the solo vibe coder — they churn to a free, funded incumbent. The <strong>staff engineer with 5–15 live worktrees who genuinely stacks</strong>. Only there is the tree load-bearing.</p>
+    </div>
+    <div>
+      <h4>The one-sentence v1.0</h4>
+      <p>A stranger downloads it, opens their private repo, branches, runs an agent, lands it, quits — and the repo is exactly as they'd expect, <strong>with nothing extra in it and nothing sent anywhere</strong>.</p>
+    </div>
+  </div>
+
+  <div class="note" style="margin-top:30px">
+    <b>How to use this document.</b> The <a href="#map">map</a> is the dependency graph of every remaining
+    increment — click a node to jump to its card. Each card carries a demo sentence, acceptance criteria,
+    the traps to watch, and a <b>prompt seed</b> you can paste straight into a coding session.
+    <a href="#decisions">Decisions</a> exists so settled questions stay settled and open ones stay visible.
+    <a href="#measured">Measured</a> holds facts verified against real git, a real Claude CLI and a real APFS
+    volume — trust those over memory, including your own.
+  </div>
+</section>
+
+<!-- ═══ NOW ════════════════════════════════════════════════════════════════ -->
+<section id="now">
+  <div class="sechead"><h2>Now</h2><span class="cmd">git status --porcelain, honestly</span></div>
+  <p class="lede">
+    A snapshot, not a fact of nature. This repository is being worked on by a parallel session while
+    this atlas is being written — three of the items below flipped from red to green during the writing.
+    Re-baseline before planning: <span class="m">npx tsc --noEmit --skipLibCheck | grep '^src/'</span> and
+    <span class="m">npx vitest run</span>.
+  </p>
+
+  <div class="porcelain">
+<span class="k">product</span>      <span class="v">branchwise — macOS desktop workspace, Electron 43 · React 19 · oRPC · React Flow · dagre</span>
+<span class="k">repo</span>         <span class="v">2 commits on main · no tags · no release ever built</span>
+<span class="k">source</span>       <span class="v">~4.3k lines under src/ · 82 unit + integration tests passing</span>
+<hr>
+<span class="k">shipped</span>      <span class="ok">✓</span> window chrome, tab-per-project model, folder picker, dagre auto-layout
+             <span class="ok">✓</span> draft-node pre-layout (best interaction in the app — protect it)
+             <span class="ok">✓</span> v2 worktree-authoritative types, pure parse/resolve/naming with real tests
+             <span class="ok">✓</span> GitRepo read path, RepoWatcher (debounce + 5s poll fallback), oRPC eventIterator transport
+             <span class="ok">✓</span> repo-store landed; the v1→v2 renderer migration is green as of 17:33
+<hr>
+<span class="k">not built</span>    <span class="no">✗</span> writing to git — no worktree creation, no delete, no merge
+             <span class="no">✗</span> real agents — the Agent tab replies from a canned pool on setTimeout
+             <span class="no">✗</span> the entire finish half: diff review, land, conflicts, cleanup
+             <span class="no">✗</span> View / Terminal / Diff / File tabs · dark mode · any keyboard model
+<hr>
+<span class="k">gates</span>        <span class="no">✗</span> no <span class="v">typecheck</span> script and no <span class="v">tsc</span> step in CI — a non-compiling tree can go green
+             <span class="no">✗</span> <span class="v">tsconfig.json</span> lacks <span class="v">skipLibCheck</span>, so real errors hide behind node_modules noise
+             <span class="hm">!</span> e2e runs on ubuntu under xvfb for a macOS-only app — macOS has never been CI-tested
+             <span class="hm">!</span> publish workflow runs on <span class="v">windows-latest</span>; node pinned 24/24/20/20 across four jobs
+             <span class="no">✗</span> no signing, no notarization, no icon, no bundle id, no DMG, no release trigger
+<hr>
+<span class="k">hazards</span>      <span class="hm">!</span> <span class="v">--bw-accent</span> and <span class="v">--bw-running</span> are byte-identical <span class="v">#2f6bff</span> — selection and activity are the same colour
+             <span class="hm">!</span> <span class="v">main.ts</span> sets <span class="v">nodeIntegration:true</span> in a renderer that will display agent output
+             <span class="hm">!</span> <span class="v">loadGraph</span> catches every error and returns null → seed doc → overwrite. Unreadable file = deleted file
+             <span class="hm">!</span> <span class="v">saveGraph</span> is a plain writeFile, not atomic, and takes an arbitrary path from the renderer
+             <span class="hm">!</span> node identity is the worktree path — breaks on realpath, on <span class="v">git worktree move</span>, on APFS case folding
+             <span class="hm">!</span> subtree delete has no confirmation and cascades to children
+  </div>
+  <div class="stamp">verified by running the commands, 2026-08-08 · re-verify before trusting</div>
+</section>
+
+<!-- ═══ MAP ════════════════════════════════════════════════════════════════ -->
+<section id="map">
+  <div class="sechead"><h2>The map</h2><span class="cmd">everything left, and what blocks what</span></div>
+  <p class="lede">
+    Rows are lanes; horizontal position is dependency depth. Solid edges are hard blocks — you cannot
+    start the target before the source lands. Dashed edges are advisory: doing them out of order costs
+    rework, not correctness. Colour means <em>state</em> only, never category — the same rule this atlas
+    prescribes for the app's own node cards. Click any node to open its card.
+  </p>
+
+  <div class="mapwrap">
+    <div class="maptools" id="mapTools"></div>
+    <div class="mapscroll"><svg class="map" id="mapSvg" role="img" aria-label="Dependency map of remaining increments"></svg></div>
+  </div>
+  <div class="legend">
+    <span><i class="sw" style="background:var(--done)"></i> landed</span>
+    <span><i class="sw" style="background:var(--next)"></i> next up</span>
+    <span><i class="sw" style="background:var(--decide)"></i> blocked on a decision</span>
+    <span><i class="sw" style="background:var(--edge)"></i> planned</span>
+    <span>— hard dependency</span>
+    <span>·· advisory order</span>
+  </div>
+</section>
+
+<!-- ═══ TIMELINE ═══════════════════════════════════════════════════════════ -->
+<section id="timeline">
+  <div class="sechead"><h2>Timeline</h2><span class="cmd">~10 weeks solo, 3–5 increments per week</span></div>
+  <p class="lede">
+    Weeks are a shape, not a promise. Two things are worth reading literally: the release track starts in
+    week one because Apple enrolment has an unbounded external wait, and the agent runtime cannot start
+    before the streaming spike has an answer. Everything else can slip right without breaking the plan.
+  </p>
+  <div class="gantt" id="gantt"></div>
+</section>
+
+<!-- ═══ WORK ═══════════════════════════════════════════════════════════════ -->
+<section id="work">
+  <div class="sechead"><h2>Increments</h2><span class="cmd">one session each · one demo sentence each</span></div>
+  <p class="lede">
+    An increment is one session: roughly 200–600 changed lines, one demo you can perform, one section of
+    the spec. If you can't write the demo sentence before starting, it isn't scoped yet — split it.
+    Every card ends with a prompt seed; paste it, then hold the result to the acceptance list.
+  </p>
+  <div class="filters" id="filters"></div>
+  <div class="cards" id="cards"></div>
+</section>
+
+<!-- ═══ DECISIONS ══════════════════════════════════════════════════════════ -->
+<section id="decisions">
+  <div class="sechead"><h2>Decisions</h2><span class="cmd">so settled things stay settled</span></div>
+  <p class="lede">
+    The point of writing these down is that an agent starting a fresh session has no memory of why.
+    <span class="tag settled">settled</span> means do not re-litigate without new evidence.
+    <span class="tag open">open</span> means it blocks work — decide it before the increment that depends on it.
+    <span class="tag reverse">reverse</span> means the current code embodies a choice that should change, and the
+    cost grows every week it doesn't.
+  </p>
+  <div class="tw"><table class="grid" id="adr"></table></div>
+</section>
+
+<!-- ═══ RISKS ══════════════════════════════════════════════════════════════ -->
+<section id="risks">
+  <div class="sechead"><h2>Risks</h2><span class="cmd">each with the signal that proves it real</span></div>
+  <p class="lede">
+    A risk without an observable signal is an anxiety. Each row names the thing you could actually see,
+    early, that tells you it is happening — and what you'd do about it.
+  </p>
+  <div class="tw"><table class="grid" id="risktab"></table></div>
+</section>
+
+<!-- ═══ EDGES ══════════════════════════════════════════════════════════════ -->
+<section id="edges">
+  <div class="sechead"><h2>Edge-case atlas</h2><span class="cmd">the repository shapes that break naive code</span></div>
+  <p class="lede">
+    Most of these were found by running real git rather than reading about it. They are grouped by where
+    they bite. Treat this as the integration-test backlog: each row should eventually be a named test.
+  </p>
+  <div class="tw"><table class="grid" id="edgetab"></table></div>
+</section>
+
+<!-- ═══ IDEAS ══════════════════════════════════════════════════════════════ -->
+<section id="ideas">
+  <div class="sechead"><h2>Idea ledger</h2><span class="cmd">explored, converged, parked — with reasons</span></div>
+  <p class="lede">
+    Nothing here is forgotten and nothing here is a commitment. The verdict column is what matters: a
+    parked idea with a stated reason costs nothing to revisit, and an unrecorded one gets re-argued every
+    six weeks.
+  </p>
+  <div class="tw"><table class="grid" id="ideatab"></table></div>
+</section>
+
+<!-- ═══ MEASURED ═══════════════════════════════════════════════════════════ -->
+<section id="measured">
+  <div class="sechead"><h2>Measured</h2><span class="cmd">numbers from this machine, not from memory</span></div>
+  <p class="lede">
+    Every row below came from running the command. Where published documentation disagreed with the
+    binary, the binary won and the disagreement is noted. Re-measure anything older than a few months —
+    especially the agent-CLI rows, which churn weekly.
+  </p>
+  <div class="tw"><table class="grid" id="meas"></table></div>
+</section>
+
+<!-- ═══ LANDSCAPE ══════════════════════════════════════════════════════════ -->
+<section id="landscape">
+  <div class="sechead"><h2>Landscape</h2><span class="cmd">who else is in this, and what it costs</span></div>
+  <p class="lede">
+    The category's price is zero and it was set by better-funded people. Crystal was deprecated, Terragon
+    shut down and Vibe Kanban's company folded, all in the first half of 2026. That is the context for
+    every monetisation thought: open source, bring-your-own subscription, never proxy credentials.
+    Across every roundup checked, <strong>no shipping tool uses a canvas or graph metaphor</strong> — which
+    is either an unoccupied position or a well-explored dead end. Find out cheaply.
+  </p>
+  <div class="tw"><table class="grid" id="comp"></table></div>
+</section>
+
+<!-- ═══ RULES ══════════════════════════════════════════════════════════════ -->
+<section id="rules">
+  <div class="sechead"><h2>Standing rules</h2><span class="cmd">the loop that keeps this shippable</span></div>
+  <p class="lede">
+    Written for one person working with coding agents. Every item is either a command with an exit code
+    or a step so concrete an agent cannot claim it without doing it. “Looks right” is not on the list.
+  </p>
+  <div class="rules">
+    <div>
+      <h4>Gate 0 · machine-checkable</h4>
+      <ul>
+        <li><code>npm run typecheck</code> — add this script first; it does not exist yet.</li>
+        <li><code>npm run check</code> — zero errors, not “fewer errors”.</li>
+        <li><code>npm run test</code> — all vitest projects.</li>
+        <li><code>npm run package</code> — typecheck catches type errors; only a build catches a deleted module. Both were needed the one time this failed.</li>
+        <li>Paste the real output into the session summary. An agent asserting “tests pass” without output is not evidence.</li>
+        <li>Review <code>git status --short</code>. A <code>D</code> on a source file means grep for importers before the session ends.</li>
+      </ul>
+    </div>
+    <div>
+      <h4>Gate 1 · tests</h4>
+      <ul>
+        <li>New pure logic → a unit test. New git / fs / process / IPC logic → an integration test against <b>real</b> git, real fs, real child processes. Mocking git tests your belief about git.</li>
+        <li>At least one new test must <b>fail when the change is reverted</b>. Verify by actually reverting. This is the only defence against tests that assert nothing.</li>
+        <li>No test deleted or skipped to make the suite pass. If one is genuinely obsolete, say which and why in a sentence.</li>
+        <li>No fixed <code>sleep</code> in a new test — poll a condition with a timeout.</li>
+      </ul>
+    </div>
+    <div>
+      <h4>Gate 2 · the human's job</h4>
+      <ul>
+        <li>Launch the app. Walk the increment's demo script — which the plan named <em>before</em> work started.</li>
+        <li>Re-read the two known landmines: no <code>memo()</code> (React Compiler is on, and Biome panics on it), and every new Zustand selector returns a stable reference or <code>useSyncExternalStore</code> loops forever.</li>
+        <li>Touched <code>src/ipc/</code>? Full restart. The main process is not hot-reloaded.</li>
+        <li>Touched git? Run it against a real repo with real history and a dirty working tree — not only a fixture.</li>
+      </ul>
+    </div>
+    <div>
+      <h4>Gate 3 · truth maintenance</h4>
+      <ul>
+        <li>README reflects reality. If an increment invalidates a README claim, the increment isn't done.</li>
+        <li>Where the implementation diverged from the spec, update the spec with a one-line why. A spec that drifts silently is worse than none.</li>
+        <li>Any decision reversed mid-increment gets a line in <a href="#decisions">Decisions</a>.</li>
+        <li>User-visible change → a line in <code>CHANGELOG.md</code>.</li>
+      </ul>
+    </div>
+    <div>
+      <h4>Gate 4 · stop the line</h4>
+      <ul>
+        <li><b>main must always typecheck, lint, test and package.</b> If an increment can't reach that state it does not merge — branch it or revert it. There is no “I'll fix the types after”.</li>
+        <li>Commit at every green point. Tag <code>last-known-good</code> before anything structural.</li>
+        <li>Never begin a session on a dirty tree. Agents compound existing breakage with new breakage and the diff becomes unreadable.</li>
+        <li>Never delete a module and its consumers in separate sessions. Same increment, or leave a re-export shim.</li>
+        <li>Review in a <em>different</em> session than the one that wrote the code. An agent that writes both code and test satisfies both with the same misunderstanding.</li>
+      </ul>
+    </div>
+    <div>
+      <h4>Gate 5 · privacy, non-negotiable</h4>
+      <ul>
+        <li>No repository content leaves the machine. Not paths, names, diffs, SHAs, file names. Branch names are frequently the product secret.</li>
+        <li>Nothing written inside the user's repo except <code>.branchwise/</code>, small, human-readable, self-ignoring.</li>
+        <li>Agent environments carry API keys. Never log <code>process.env</code>, never include it in diagnostics, never crash-report it.</li>
+        <li>Any diagnostic export is previewable before it moves, redacted by default, copied to the clipboard — never uploaded.</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+</main>
+
+<footer>
+  branchwise atlas · rev 1 · 2026-08-08 · synthesised from four parallel reviews (product · architecture · interaction · delivery)
+  with premises verified against real git 2.50.1, a live Claude Code CLI and an APFS volume on this machine.<br>
+  This file is the only artifact of that session — no application code was changed. Edit the data arrays at the bottom to keep it true.
+</footer>
+
+<script>
+/* ══════════════════════════════════════════════════════════════════════════
+   DATA. Everything below drives the map, the timeline and the cards.
+   To add an increment: append to WORK. Ids must be unique; deps reference ids.
+   status: done | next | decide | planned
+   ══════════════════════════════════════════════════════════════════════════ */
+
+const LANES = [
+  {id:'F', name:'foundation', sub:'gates & identity'},
+  {id:'S', name:'sync',       sub:'read git, live'},
+  {id:'W', name:'write',      sub:'canvas → git'},
+  {id:'L', name:'land',       sub:'the finish half'},
+  {id:'A', name:'agent',      sub:'real processes'},
+  {id:'C', name:'craft',      sub:'make it good'},
+  {id:'R', name:'release',    sub:'ship it'},
+];
+
+const WORK = [
+/* ── FOUNDATION ────────────────────────────────────────────────────────── */
+{
+  id:'F1', lane:'F', slug:'green-tree', size:'M', status:'done', week:[1,1],
+  title:'Reconcile the v1→v2 renderer migration',
+  one:'The app compiles and runs again after the types moved to the worktree model.',
+  why:`The types were rewritten to the spec's v2 model and lib/branch/tree.ts was deleted, but five renderer
+  files still spoke v1. 82 tests passed while the app could not build, because every test targeted a pure
+  module and none imported the store or the canvas. This is the single most instructive failure in the
+  project so far: it is exactly what agent-driven work does when the prompt names the model and not the
+  consumers.`,
+  demo:'npm run start opens a window; npx tsc --noEmit --skipLibCheck reports nothing under src/.',
+  accept:[
+    'Zero tsc errors under src/ with skipLibCheck on.',
+    'npm run package succeeds — proves no module was deleted out from under an importer.',
+    'graph-store is gone or rewritten as repo-store against the v2 doc.',
+    'README no longer documents lib/branch/tree.ts as if it exists.'
+  ],
+  watch:[
+    'Landed 2026-08-08 by a parallel session while this atlas was being written — verify before assuming.',
+    'The 17 outstanding lint errors from npm run check are separate; a permanently-red lint gate trains you to ignore CI.'
+  ],
+  deps:[], soft:[],
+  prompt:`The repo is mid-migration from the v1 node-list graph doc to the v2 worktree-authoritative model
+in src/types/branch.ts. Finish it: rewrite the renderer consumers (canvas, node card, panel, workspace,
+agent tab, store) against CanvasNode + selectedWorktree, remove dead imports of @/lib/branch/tree, and
+fix the unknown-typed catch. Do not change the v2 schema. Done means: npx tsc --noEmit --skipLibCheck is
+clean under src/, npm run test passes, npm run package succeeds. Paste all three outputs.`
+},
+{
+  id:'F2', lane:'F', slug:'typecheck-gate', size:'S', status:'next', week:[1,1],
+  title:'Add the typecheck gate that would have caught F1',
+  one:'CI can never again go green on a tree that does not compile.',
+  why:`There is no typecheck script in package.json and no tsc step in any of the three workflows. Vite
+  strips types without checking them, so the dev server starts on broken code. tsconfig.json also lacks
+  skipLibCheck, which buries the real errors under forty lines of node_modules noise — very plausibly why
+  nobody ran tsc. Cheapest high-value change in the whole plan.`,
+  demo:'Open a PR containing a deliberate type error and watch CI fail in under a minute.',
+  accept:[
+    '"typecheck": "tsc --noEmit" in package.json, and skipLibCheck plus explicit types in tsconfig.',
+    'A typecheck step in both check.yaml and testing.yaml.',
+    '.nvmrc pinning node 24; all four CI jobs use node-version-file; engines field set.',
+    'check.yaml also triggers on push to main — solo devs push to main.',
+    'cache: npm and a concurrency group on every workflow.'
+  ],
+  watch:[
+    'Adding skipLibCheck will suddenly reveal the real error count. That number is the backlog, not a regression.',
+    'Drop the template sum.test.ts while you are here; it pads the count and tests nothing.'
+  ],
+  deps:['F1'], soft:[],
+  prompt:`Add a typecheck gate to this repo. 1) package.json: add "typecheck": "tsc --noEmit". 2) tsconfig.json:
+add skipLibCheck:true and types:["node"] so node_modules noise stops burying real errors. 3) .nvmrc with 24;
+switch every GitHub workflow job to node-version-file: .nvmrc; add "engines":{"node":">=24"}. 4) Add a
+typecheck step to check.yaml and testing.yaml, add push:[main] to check.yaml, add cache:npm and a
+concurrency group to all three. Then run npm run typecheck and report the real error count.`
+},
+{
+  id:'F3', lane:'F', slug:'ci-on-macos', size:'S', status:'planned', week:[1,2],
+  title:'Move the tests to the platform the app runs on',
+  one:'macOS gets exercised by CI for the first time.',
+  why:`The e2e job runs on ubuntu under xvfb for a macOS-only app. main.ts applies hiddenInset title bars and
+  the traffic-light inset only when platform is darwin — the window chrome, which is one of the few things
+  README claims is real, has never been tested. Combined with lint-on-ubuntu, macOS coverage in the entire
+  CI estate is currently zero.`,
+  demo:'A green testing.yaml run on a macos-14 runner.',
+  accept:[
+    'test-e2e runs on macos-14; xvfb removed.',
+    'test:unit in CI uses vitest run, not the watch-mode script.',
+    'vitest split into projects: unit (node) / component (jsdom) / integration (node, serial, long timeout).',
+    'Playwright keeps trace, video and screenshot on failure; the meaningless chromium device project is dropped.'
+  ],
+  watch:[
+    'macOS runners are slower and cost more minutes — keep e2e to 6–10 tests forever.',
+    'Integration tests touching fs watchers will be the flakiest tier; quarantine them in their own project so a flake does not red the unit gate.'
+  ],
+  deps:['F2'], soft:[],
+  prompt:`Restructure this repo's test setup. 1) vitest.config.ts: replace the single dir setting with three
+projects — unit (src/tests/unit, node env), component (src/tests/component, jsdom, setup file), integration
+(src/tests/integration, node, fileParallelism:false, 20s timeouts). Move existing files accordingly.
+2) testing.yaml: e2e job to macos-14, drop xvfb, use npm run test (vitest run) not test:unit, add
+trace/video/screenshot retain-on-failure to playwright.config.ts and drop the chromium device project.
+3) Delete src/tests/unit/sum.test.ts. Report a green run.`
+},
+{
+  id:'F4', lane:'F', slug:'stable-identity', size:'M', status:'decide', week:[2,2],
+  title:'Stop using the worktree path as identity',
+  one:'A worktree survives being moved, renamed, or reached through a symlink without losing its node.',
+  why:`CanvasNode.id and selectedWorktree are both absolute paths. git worktree list always reports realpaths,
+  while the Electron folder picker returns whatever the user clicked — so a repo opened via /tmp (a symlink
+  to /private/tmp on macOS) fails the root comparison, an arbitrary worktree becomes root, and selection
+  silently resets on every reload. Separately, git worktree move produces a remove+add pair: the node dies
+  and is reborn, selection is lost, and any agent session keyed by path is orphaned. The admin directory
+  name under .git/worktrees/ survives all of it.`,
+  demo:'Open the repo through a symlinked path, move a worktree with git, and watch the node keep its identity and selection.',
+  accept:[
+    'Every path entering the system is canonicalised through realpath at the boundary — picker, projectExists, saveGraph, tab store — once, in one place.',
+    'Node identity is the worktree admin-dir id; path becomes an attribute.',
+    'git worktree move produces a "changed" diff, not remove+add.',
+    'Integration test: symlinked repo root resolves to the same node set as the real path.',
+    'commonDir is read with --path-format=absolute; the current code will get a relative ".git" back and watch the wrong directory.'
+  ],
+  watch:[
+    'Do this BEFORE any graph.json files exist in users\' repos. After that it is a migration.',
+    'Three identity spaces currently coexist: branch name (annotations), worktree path (nodes, selection), admin-dir id (unused). Pick one and derive the others.',
+    'migrateAnnotations already papers over the branch-name↔path seam, and is subtly lossy — it refuses to migrate when the target name exists, silently orphaning the old annotation.'
+  ],
+  deps:['F1'], soft:['S2'],
+  prompt:`Change node identity in this codebase from the worktree path to the git worktree admin-directory id
+(the directory name under .git/worktrees/, available via git -C <wt> rev-parse --path-format=absolute --git-dir).
+Also: canonicalise every path entering the system through fs.realpath at the boundary, and read the common dir
+with --path-format=absolute. Keep path as an attribute on the node. Add integration tests for: a repo opened
+through a symlink, git worktree move, and selection surviving both. Do not change the .branchwise doc format
+in the same increment — annotations stay keyed by branch name for now.`
+},
+{
+  id:'F5', lane:'F', slug:'doc-safety', size:'S', status:'next', week:[2,2],
+  title:'Make the project file impossible to silently destroy',
+  one:'An unreadable or newer graph.json produces an error, not an empty overwrite.',
+  why:`loadGraph catches everything and returns null; the store turns null into a seed doc and immediately
+  schedules a save. A transient EBUSY, a permissions blip, a half-written file or a future version number all
+  look identical to "no file", and the response is to overwrite it. saveGraph is a plain writeFile — crash
+  mid-write leaves truncated JSON, which then parses as "no file". These are the five most dangerous lines
+  in the repo.`,
+  demo:'chmod 000 the graph file, reopen the project, see an error state — and confirm the file is untouched.',
+  accept:[
+    'ENOENT seeds; every other error surfaces and writes nothing.',
+    'saveGraph writes to a .tmp and renames.',
+    'version is a number with an explicit migration switch, not a literal; unknown-future versions refuse to write.',
+    'Keys are sorted on serialize, so two machines produce identical bytes for identical data.',
+    'saveGraph failure surfaces to the renderer instead of console.error and return false.'
+  ],
+  watch:[
+    'Sorted keys must land before anyone commits the file to a repo, or every user gets a spurious diff later.',
+    'saveGraph accepts an arbitrary path from the renderer and mkdir -p\'s under it. Add a main-process allowlist of folders the user actually picked.',
+    '.branchwise/ exists in every worktree because it is tracked — reads and writes must always target the main worktree copy, never cwd.'
+  ],
+  deps:['F1'], soft:[],
+  prompt:`Harden .branchwise/graph.json persistence. 1) loadGraph: distinguish ENOENT (seed) from every other
+error and from parse failure — those must surface as an error state and must never trigger a write.
+2) saveGraph: write to graph.json.tmp then rename; surface failure to the renderer. 3) Schema: version becomes
+z.number() with an explicit migration switch; refuse to write when the file's version is newer than we know.
+4) Serialize with sorted keys so output is byte-deterministic. 5) Resolve the doc path against the MAIN
+worktree, never cwd. 6) Add a main-process allowlist so saveGraph can only write under folders the user picked.
+Tests for each failure mode.`
+},
+
+/* ── SYNC ───────────────────────────────────────────────────────────────── */
+{
+  id:'S1', lane:'S', slug:'stream-spike', size:'S', status:'next', week:[1,1],
+  title:'Prove the oRPC event iterator under abuse',
+  one:'A test streams thousands of events server→client, aborts mid-stream, and leaks nothing.',
+  why:`The design spec flags this transport as "to be proven with a spike before building on it", and then
+  everything rides on it — worktree snapshots today, agent token streams later. The happy path already works
+  in src/ipc/repo/handlers.ts. What has not been proven is the unhappy path: abort, renderer reload,
+  backpressure. If it can't do those, the IPC design changes, and you want to know that in week one rather
+  than week six.`,
+  demo:'A vitest node test with a real MessageChannel: 100k events at 500/s, then break the for-await and assert the server generator finalised.',
+  accept:[
+    'Client breaking the loop tears down the server-side iterator — otherwise you leak a watcher per project tab, forever.',
+    'Port closing mid-stream surfaces as a rejection, not a hang.',
+    'A slow consumer does not unbounded-buffer; memory in both processes is flat over 100k events.',
+    'Renderer reload re-subscribes without duplicating watchers.',
+    'The answer is written into the spec, whichever way it goes.'
+  ],
+  watch:[
+    'No Electron needed — the handler and manager only depend on the MessagePort shape, so node:worker_threads MessageChannel is enough.',
+    'The existing SnapshotStream deliberately delivers the newest snapshot rather than every intermediate one. That is right for snapshots and wrong for agent tokens — the agent path needs a different discipline.',
+    'If the spike fails, the fallback (a second ipcMain channel with manual framing) is half a day now and a week in September.'
+  ],
+  deps:[], soft:['F2'],
+  prompt:`Write a spike test proving the oRPC eventIterator transport under stress, using node:worker_threads
+MessageChannel (no Electron). Cover: ordered delivery; client breaking the for-await tears down the server
+generator; port closing mid-stream rejects rather than hangs; 100k events at high rate with flat memory on
+both sides; re-subscription after a simulated renderer reload does not duplicate subscriptions. Report the
+results and append a short "transport: proven / not proven" note to the design spec.`
+},
+{
+  id:'S2', lane:'S', slug:'git-read-path', size:'M', status:'done', week:[1,2],
+  title:'GitRepo read path with a real-git test harness',
+  one:'A test git-inits a temp repo, adds two worktrees, and gets three correct entries back.',
+  why:`Parsing porcelain is pure and already well tested. What must be tested against real git is git itself:
+  the spec's own best discovery — that a branch created with no start point records "Created from HEAD" and
+  needs a second inference step — came from probing, not documentation. A mock would have encoded the wrong
+  belief and passed forever.`,
+  demo:'Integration test creates a repo, adds worktrees, asserts the derived tree.',
+  accept:[
+    'resolveRepo normalises a linked worktree to its main repository via --git-common-dir.',
+    'Temp-repo harness pins GIT_CONFIG_GLOBAL=/dev/null, GIT_CONFIG_SYSTEM=/dev/null, fixed dates and a redirected HOME — otherwise a developer\'s ~/.gitconfig makes the suite non-hermetic.',
+    'A git --version floor asserted in beforeAll, skipping loudly below it.'
+  ],
+  watch:[
+    'Landed as src/ipc/repo/repo.ts plus git-repo.integration.test.ts. Check the hermeticity items above — they are easy to omit.',
+    'Neither chokidar nor execa is a declared dependency; the git wrapper and watcher currently run on node builtins. Fine, but be deliberate about it.'
+  ],
+  deps:[], soft:[],
+  prompt:`(landed — verify rather than rebuild) Audit src/ipc/repo/repo.ts and its integration test for
+hermeticity: GIT_CONFIG_GLOBAL and GIT_CONFIG_SYSTEM pinned to /dev/null, HOME redirected, author and
+committer dates fixed, and a git --version floor asserted in beforeAll. Report what is missing and fix it.`
+},
+{
+  id:'S3', lane:'S', slug:'two-lane-queue', size:'M', status:'next', week:[2,3],
+  title:'A command queue that serialises writes without serialising reads',
+  one:'Ten concurrent worktree creations produce zero index.lock errors, and a status read does not wait behind them.',
+  why:`One serial queue per repo is the right instinct — the user and an agent mutating refs concurrently will
+  collide on index.lock. But a single lane also parks every read behind every write: a git worktree add on a
+  large repo takes a minute, during which every status, every provenance read and every re-list blocks.
+  Reads do not take index.lock. Split the lanes.`,
+  demo:'Race ten real git worktree add calls in a test; assert zero failures and that an interleaved read returned promptly.',
+  accept:[
+    'Serial lane for ref-mutating commands; bounded-parallel lane (concurrency ~4) for worktree list, status, merge-base, for-each-ref.',
+    'An integration test that actually races real git commands — this is unmockable by definition and is the most likely production bug in the design.',
+    'Queue depth and wait time are visible in the structured log.'
+  ],
+  watch:[
+    'An agent shelling out to git inside its own worktree is outside your queue entirely. You cannot serialise it — you can only recover from its lock contention gracefully.',
+    'Retry on index.lock with backoff, but bound it; a stale lock file from a killed process needs a human-readable message, not an infinite retry.'
+  ],
+  deps:['S2'], soft:[],
+  prompt:`Refactor the git command runner into two lanes per repository: a strictly serial lane for
+ref-mutating commands (worktree add/remove, branch -d, merge, rebase) and a bounded-parallel lane
+(concurrency 4) for read-only ones (worktree list, status, merge-base, rev-list, for-each-ref). Add an
+integration test that races 10 real git worktree add calls and asserts zero index.lock failures, plus one
+asserting a read completes while a slow write is in flight. Add index.lock retry with bounded backoff and a
+human-readable message on give-up.`
+},
+{
+  id:'S4', lane:'S', slug:'provenance', size:'M', status:'next', week:[3,3],
+  title:'Recover parents cheaply, and write them down before git forgets',
+  one:'Opening a repo with sixty branches resolves every parent in under 150ms and persists what it learned.',
+  why:`Reflogs expire — 90 days by default, and git gc --auto fires from ordinary commands. After
+  "git reflog expire", the reflog returns empty with exit code 0 and the log file remains as a zero-byte
+  file: silent, total, unrecoverable loss of provenance. So writing inferred parents back is not an
+  optimisation, it is a correctness requirement, and it must happen on first sight of a branch. Separately,
+  spawning git reflog per branch costs ~12ms of process overhead each; reading .git/logs/refs/heads/<name>
+  directly is eight times faster for the identical artifact.`,
+  demo:'Open a repo with 60 branches; measure first-open time; expire the reflog; reopen and confirm the tree is unchanged.',
+  accept:[
+    'First reflog line read from the log file, not a subprocess, with a fallback to git when core.logAllRefUpdates is off.',
+    'Learned annotations written synchronously with the first snapshot, not through the 300ms debounce.',
+    '"Created from HEAD" resolves via git branch --contains on the recorded sha, dropping self; ties prefer the main worktree\'s branch.',
+    'Integration test: expire all reflogs, reopen, tree identical.'
+  ],
+  watch:[
+    'Parent resolution — not listing — is the cost cliff. Listing 66 worktrees takes 21ms; sixty reflog subprocesses take 758ms, and that lands in the serial queue on first open, which is exactly when the user is watching.',
+    'If the parent branch has no worktree it is not a node: walk up the provenance chain to the nearest real node, cycle-guarded, so the canvas stays connected.'
+  ],
+  deps:['S2','S3'], soft:[],
+  prompt:`Make parent provenance fast and durable. 1) Replace the per-branch git reflog subprocess with a
+direct read of the first line of .git/logs/refs/heads/<name>, keeping parseBranchOrigin as the pure parser;
+fall back to git when the file is absent. 2) Persist learned annotations synchronously with the first
+snapshot, not via the debounced save — reflogs expire and cannot serve as storage. 3) Implement the
+"Created from HEAD" fallback via git branch --contains on the sha from the reflog entry. Add integration
+tests including one that expires all reflogs and asserts the tree is unchanged after reopen. Report the
+first-open timing on a 60-branch repo before and after.`
+},
+{
+  id:'S5', lane:'S', slug:'repo-shapes', size:'M', status:'next', week:[3,3],
+  title:'Handle the repository shapes that are not a plain clone',
+  one:'Opening a bare repo, an empty repo, a linked worktree or a plain folder each gives a correct, specific answer.',
+  why:`Right now a bare main repository silently renders a plausible, wrong tree: the code filters out the bare
+  entry and picks an arbitrary worktree as root. Bare-plus-worktrees is the standard layout for people who
+  already use worktrees heavily — which is precisely the target user. The spec says "refuse with a clear
+  message"; the better answer is a synthetic root node with no branch.`,
+  demo:'Open four folders in turn — bare repo, empty repo, linked worktree, non-repo — and get four distinct correct screens.',
+  accept:[
+    'Bare main repo renders as a synthetic root; rev-parse --show-toplevel is a fatal error there, so root cannot be populated the obvious way.',
+    'Empty repo (unborn HEAD) shows "main (no commits)" and one action: make the first commit. No + affordance that can only fail.',
+    'Non-git folder offers git init and shows which folder was rejected.',
+    'Missing git binary is distinguished from "not a repo" — ENOENT from execFile currently swallows into null and the two are indistinguishable. Check once at startup and suggest xcode-select --install.',
+    'A linked worktree opened directly normalises to the main repository.'
+  ],
+  watch:[
+    'projectExists runs once on mount and is never re-checked, so a folder that moves later fails silently.',
+    'Network volumes: FSEvents does not work over SMB/NFS and can deliver nothing rather than erroring. The 5s poll fallback in the watcher covers this — keep it and say so in a comment.'
+  ],
+  deps:['S2'], soft:['S4'],
+  prompt:`Handle non-standard repository shapes. For each of: bare main repo with linked worktrees, empty repo
+with unborn HEAD, a linked worktree opened directly, a folder that is not a repo, and a machine with no git
+binary — produce a correct and specific UI state. The bare repo must render a synthetic root node, not an
+arbitrary worktree promoted to root. Detect git's absence once at startup and distinguish it from "not a
+repo". Add integration tests creating each shape with real git.`
+},
+{
+  id:'S6', lane:'S', slug:'derived-canvas', size:'L', status:'done', week:[3,4],
+  title:'Derive the canvas from git rather than from a stored node list',
+  one:'Open a repo with three worktrees and see three correctly parented nodes you never created in the app.',
+  why:`This is the increment where the product stops being a mind-map toy. Nodes become
+  snapshot ⋈ annotations — the same "positions are derived" discipline as the dagre layout, one level up.
+  The two sides can then never disagree, because they no longer describe the same thing.`,
+  demo:'A repo with worktrees made in a terminal opens onto a populated, correctly parented canvas.',
+  accept:[
+    'graph.json holds no node list; it is an annotation table keyed by branch name plus panel state.',
+    'v1 documents are discarded on read — their node list described branches that never existed in git.',
+    'Inferred edges render dashed-lighter; user edges are never re-inferred.',
+    'The layout memo does not re-run when only selection changes.'
+  ],
+  watch:[
+    'Landed, but the performance property is easy to lose: when nodes become useMemo(() => join(snapshot, annotations)), a fresh snapshot object on every watcher tick re-lays-out everything. diffSnapshots/isEmptyDiff must gate the STORE WRITE, not merely the emit.',
+    'flowNodes currently rebuilds every node\'s data object — including fresh onDelete/onStartChild closures — on any change. New data identity re-renders every node. The React Compiler will not save you here.'
+  ],
+  deps:['S2','F1'], soft:['S4'],
+  prompt:`(landed — verify) Audit the derived-canvas path for two performance properties: (1) a watcher tick
+that produces an identical snapshot must not cause a store write, a new nodes array, or a dagre re-layout —
+confirm diffSnapshots gates the write; (2) selecting a node must not rebuild every node's data object or
+re-run layout. Profile with 100 nodes and report frame times. Fix by hoisting per-id callbacks and moving
+isSelected out of data into React Flow's own selected prop.`
+},
+{
+  id:'S7', lane:'S', slug:'watcher', size:'M', status:'done', week:[4,4],
+  title:'Live sync — fs events as a signal, never a description',
+  one:'Run git worktree add in a terminal and the node appears on the canvas within a second, untouched.',
+  why:`This is the demo that sells the product. The discipline that makes it robust is already right: every
+  event triggers a fresh read of git's own answer, which is diffed against the previous snapshot and emitted
+  only if it differs. Two git worktree adds plus one commit produce 62 filesystem events, a third of them
+  .lock churn — any design that interprets event paths dies on that.`,
+  demo:'Two windows: terminal and app. Create, remove and rename worktrees in the terminal; the canvas follows.',
+  accept:[
+    'Watches worktrees/, refs/heads/ recursive, packed-refs and HEAD under the common git dir.',
+    '150ms debounce with a trailing max-wait around 1s, so an agent committing in a loop still updates.',
+    '*.lock filtered before the debounce.',
+    'A 5s poll fallback for filesystems where FSEvents is silent.',
+    'Our own writes produce no spurious update — the pipeline is idempotent.'
+  ],
+  watch:[
+    'Landed as src/ipc/repo/watcher.ts with debounce + poll. Confirm the max-wait and the .lock filter exist; a busy repo can otherwise re-list every 150ms forever.',
+    'Deliberately not watched: per-worktree dirty state. It needs git status in every worktree and cost grows linearly with node count. Keep it on demand.',
+    'There is no "close project → dispose watcher, drop conversations" path yet. Add one before tabs can be closed with agents running.'
+  ],
+  deps:['S2','S1'], soft:[],
+  prompt:`(landed — verify) Audit src/ipc/repo/watcher.ts against three properties: (1) a trailing max-wait
+(~1s) exists so a repo receiving continuous ref writes still updates rather than debouncing forever;
+(2) *.lock paths are filtered before the debounce — roughly a third of events under .git are lock churn;
+(3) there is a disposal path that stops the watcher and releases subscribers when a project tab closes.
+Add whatever is missing, with tests.`
+},
+{
+  id:'S8', lane:'S', slug:'external-ux', size:'M', status:'next', week:[4,5],
+  title:'External changes re-frame the view but never steal your place',
+  one:'Delete a worktree directory by hand and the node goes missing with a prune button — without moving your selection.',
+  why:`The moment the canvas is live, it can interrupt you. The invariant that makes it feel trustworthy rather
+  than twitchy: external changes always re-frame the view and never take the selection or the panel's
+  contents. There is currently no "nothing selected" state at all — the workspace falls back to the first
+  node, so the panel always eats 432px.`,
+  demo:'With a node selected and a message typed in the panel, create a worktree externally; the map re-settles and your typing survives.',
+  accept:[
+    'Selection and panel contents survive any external change.',
+    'Clicking empty canvas deselects and collapses the panel; selectedWorktree null is a real state the UI can render.',
+    'Prunable worktrees render as "missing" at reduced opacity with a one-click prune; children re-parent to the grandparent rather than orphaning behind a dead node.',
+    'Detached worktrees label as "detached @ abc1234" and attach to root.',
+    'git branch -m migrates the annotation via the stable worktree identity.'
+  ],
+  watch:[
+    'lock and prunable reasons are currently parsed away into booleans. The reason string ("locked: agent running") is the single most important thing in the delete dialog, and git worktree remove on a locked tree fails with "use remove -f -f". Widen the schema now — it is cheaper than later.',
+    'migrateAnnotations refuses to migrate when the target name already exists, silently orphaning the old annotation, and its reparent loop is order-dependent across two renames in one batch.'
+  ],
+  deps:['S6','S7'], soft:['F4'],
+  prompt:`Implement the external-change UX invariants. 1) Re-frame the view on any external change but never
+alter selection or panel state; add a real "nothing selected" state and make clicking empty canvas deselect
+and collapse the panel. 2) Render prunable worktrees as "missing" with a one-click prune, re-parenting
+children to the grandparent. 3) Label detached worktrees. 4) Widen WorktreeEntry.locked and .prunable from
+boolean to carry git's reason string, and surface it. 5) Fix migrateAnnotations: handle a name collision and
+make a multi-rename batch order-independent. Component tests for each.`
+},
+
+/* ── WRITE ──────────────────────────────────────────────────────────────── */
+{
+  id:'W1', lane:'W', slug:'create-worktree', size:'M', status:'planned', week:[5,5],
+  title:'Create a real worktree from the canvas',
+  one:'Type a name on the canvas and a real worktree appears on disk at <repo>.worktrees/<slug>.',
+  why:`The sibling directory convention matters: build tools, editors and watchers never recurse into it, and
+  it is on the same APFS volume by construction, which is what makes cheap copy-on-write provisioning
+  possible later.`,
+  demo:'Create a child node; confirm with git worktree list in a terminal.',
+  accept:[
+    'Names fold into something git accepts; feat/a flattens to feat-a rather than nesting directories.',
+    'Target path already exists → refuse and ask for another name, checking the filesystem, not just our own slug set.',
+    'Parent has uncommitted changes → non-blocking notice that the child starts from the parent\'s last commit.',
+    'Repo has .gitmodules → submodules initialised or a loud warning. git worktree add leaves them empty and git status says nothing.',
+    'Main worktree is sparse → replicate the sparse config, or the new worktree materialises the entire monorepo.'
+  ],
+  watch:[
+    'macOS is case-insensitive: feat/a and Feat/A are distinct branch strings but the same directory, and git itself refuses the second branch. Case-fold when checking collisions on darwin and disambiguate with a short hash.',
+    'Non-Latin branch names degrade to an empty slug and fall back to the literal "branch" — so the second one collides. Append a short hash when the slug degrades. This hits any non-English speaker on their first branch.',
+    'Hooks are shared across worktrees via the common dir, so a repo\'s post-checkout hook runs the instant a user clicks +. Consider core.hooksPath=/dev/null unless the user opts in, and warn on open when a repo has hooks.',
+    'On a 5GB monorepo this is minutes. Show real progress — consider --no-checkout followed by a checkout that reports progress — and offer cancel.'
+  ],
+  deps:['S3','S6'], soft:['S8'],
+  prompt:`Implement createWorktree from the canvas into <repo>.worktrees/<slug>, reusing slugForBranch and
+normalizeBranchName. Requirements: refuse when the target directory already exists (check the filesystem);
+case-fold collision checks on darwin; append a short hash when a slug degrades to empty (non-Latin names);
+detect .gitmodules and initialise submodules or warn loudly; replicate the main worktree's sparse-checkout
+config; non-blocking notice when the parent is dirty. Run git worktree add with core.hooksPath disabled
+unless the user has opted in, and surface that a repo has hooks. Integration tests for every branch above.`
+},
+{
+  id:'W2', lane:'W', slug:'inherit-environment', size:'L', status:'planned', week:[6,6],
+  title:'Make a new worktree cheap by inheriting its parent',
+  one:'A new child worktree is usable in seconds because its node_modules came across as a copy-on-write clone.',
+  why:`This is the single highest-leverage feature branchwise can ship, and the reason the tree metaphor pays a
+  cash dividend: in a tree, a child almost always wants exactly what its parent had. Every worktree is
+  otherwise a fresh checkout with no node_modules, no .venv, no build cache — 300MB to 2GB and one to three
+  minutes of install per node. That is why real users cap at three worktrees, and a canvas whose payoff
+  scales with node count needs them not to.`,
+  demo:'Create a child of a node with a 200MB node_modules; it is ready in about four milliseconds and costs no disk.',
+  accept:[
+    'Heavy directories cloned with APFS copy-on-write (cp -Rc / ditto --clone), not copied.',
+    'Same-volume check before assuming a clone happened — cp -c falls back to a full copy silently.',
+    'Package manager detected: with pnpm, do not clone the tree; run install (or use the global virtual store) — its symlink structure is the point.',
+    'A user-authored .branchwise/on-create.sh escape hatch, with the parent path in env.',
+    'Shared caches by env var (npm_config_cache, PNPM_STORE_DIR, CARGO_HOME, UV_CACHE_DIR, GOMODCACHE).',
+    'The UI shows what was cloned, how long it took, and offers to skip.'
+  ],
+  watch:[
+    'Never symlink node_modules between worktrees. Two agents installing on different branches through one symlink corrupt each other silently.',
+    'Never hardlink files an agent might write — cp -Rl is zero-cost and lets a worktree write mutate the shared store.',
+    'Never use Node\'s fs.cp with COPYFILE_FICLONE: on macOS it is a silent no-op (libuv has no Apple clone path) and FICLONE_FORCE throws ENOSYS. Shell out, or bind @reflink/reflink.',
+    'If you do use fs.cp anywhere, verbatimSymlinks:true is mandatory — the default rewrites relative symlinks to absolute paths pointing back into the source tree.',
+    'Never copy .env, credentials or untracked secrets without asking. "Copy the parent\'s untracked files" is a credential-propagation feature.',
+    'Never garbage-collect <repo>.worktrees/ on your own. Deleting a directory holding three days of uncommitted agent work ends the product.'
+  ],
+  deps:['W1'], soft:[],
+  prompt:`Implement worktree provisioning by inheritance. On create, clone designated heavy directories
+(node_modules, .venv, target, vendor, .next) from the parent worktree using APFS copy-on-write — shell out to
+cp -Rc or ditto --clone; do NOT use fs.cp with COPYFILE_FICLONE, which is a silent no-op on macOS. Verify
+same-volume before assuming a clone (cp -c falls back to a full copy silently); measure a df delta in a
+self-test. Detect the package manager: with pnpm, skip cloning and run install instead. Support a
+.branchwise/on-create.sh hook with the parent path in env, and point shared caches at one location by env
+var. Show what was cloned and how long it took, and let the user skip. Integration tests: npm, pnpm and yarn
+trees each build and test correctly in the child, and writing in the child never mutates the parent.`
+},
+{
+  id:'W3', lane:'W', slug:'delete-flow', size:'L', status:'planned', week:[6,6],
+  title:'Deleting a branch tells you what you are about to lose',
+  one:'Deleting an unmerged node shows the uncommitted count and merge status, and re-parents children instead of cascading.',
+  why:`Today the trash button is revealed by the same hover that reveals the + affordance, sits about twenty
+  pixels away from it, has no confirmation, and cascades to the entire subtree. That is one misclick between
+  a user and an afternoon of agent work.`,
+  demo:'Delete an unmerged branch with two children; see the warning; confirm the children now hang off the grandparent.',
+  accept:[
+    'Dialog lists worktree path, uncommitted file count, merge status against the parent, and child count.',
+    'Merged → "also delete the branch" pre-ticked; unmerged → unticked with the reason shown.',
+    'Children re-parent to the grandparent, never cascade.',
+    'Locked worktrees surface git\'s lock reason and require an explicit force.',
+    'Delete and create affordances are separated in space, or delete moves off hover entirely.'
+  ],
+  watch:[
+    'Needs workingTreeStatus and isMergedInto, both on demand and both potentially slow on a large dirty repo. Compute for the one worktree, not all of them.',
+    'A worktree with a running agent must refuse to delete, or kill the agent first with an explicit confirmation.'
+  ],
+  deps:['W1','S8'], soft:['L1'],
+  prompt:`Implement the delete flow. Confirmation dialog showing worktree path, uncommitted file count, merge
+status against the parent, child count, and git's lock reason when locked. "Also delete the branch" is
+pre-ticked only when merged, and shows the reason when not. Children re-parent to the grandparent — never
+cascade. Refuse (or explicitly confirm killing) when an agent is running in that worktree. Move the delete
+affordance away from the + stub so the two cannot be confused. Integration tests including: unmerged with
+children, locked, dirty, and a worktree whose directory is already gone.`
+},
+{
+  id:'W4', lane:'W', slug:'failure-surfaces', size:'S', status:'planned', week:[7,7],
+  title:'Every git failure becomes a sentence a human can act on',
+  one:'Make a worktree operation fail four different ways and get four specific, actionable messages.',
+  why:`Silent failure is the failure mode this codebase is prone to — loadGraph swallowing errors, saveGraph
+  returning false to a console.error, tryGit turning ENOENT into null. In a tool that touches people's
+  repositories, "nothing happened" is the worst possible response.`,
+  demo:'Force four failures; read four messages; none is a stack trace.',
+  accept:[
+    'Every git invocation classifies stderr to an enum at the boundary; raw text stays in memory for the UI only.',
+    'No error path ends in console.error alone.',
+    'Messages name the thing to do next, not the thing that went wrong.'
+  ],
+  watch:[
+    'Classification is also what makes structured logging safe — raw git stderr routinely contains absolute paths and branch names, and branch names are frequently the product secret.'
+  ],
+  deps:['W1'], soft:['R5'],
+  prompt:`Introduce a git error classification layer: every command's stderr is mapped to a typed enum
+(path_exists, locked, unmerged, not_a_repo, no_commits, index_lock, permission, unknown) at the boundary,
+with a human-readable message that names the next action. Raw stderr is kept only in memory for the UI.
+Replace every console.error-and-continue path in src/ipc with a surfaced error. Tests forcing at least six
+distinct failures.`
+},
+
+/* ── LAND ───────────────────────────────────────────────────────────────── */
+{
+  id:'L1', lane:'L', slug:'ready-state', size:'S', status:'planned', week:[7,7],
+  title:'Know when a branch is finished',
+  one:'A branch that is ahead, clean and unconflicted grows a chevron on its right edge.',
+  why:`The product's happy path is: the agent finished, the work is good, put it on main. Right now the sad
+  path (abandon) has a designed flow and the happy path has nothing. "Ready to land" is not a badge — it is
+  an affordance, mirroring the + stub. Plus on the right means grow from here; chevron means land this.`,
+  demo:'Commit in a worktree; the node earns a chevron; a dirty sibling does not.',
+  accept:[
+    'Ahead/behind and dirty computed on demand — for the selected node and the delete dialog only.',
+    'Ready = ahead of parent, clean, no conflict. Derived, never stored.',
+    'Keyboard equivalent from the start.'
+  ],
+  watch:[
+    'git status on a large dirty monorepo is 200ms to 2s. Cancel the request when selection moves.',
+    'Resist putting dirty badges on every node. That is how "compute on demand" quietly becomes "compute always".'
+  ],
+  deps:['S6'], soft:['W3'],
+  prompt:`Add on-demand ahead/behind and dirty state for the selected node only, cancelled when selection
+moves, and derive a "ready to land" state (ahead of parent, clean, unconflicted). Render it as a chevron
+affordance on the node's right edge mirroring the + stub, with a keyboard equivalent. Do not add dirty
+badges to unselected nodes. Component test asserting the chevron appears and disappears correctly.`
+},
+{
+  id:'L2', lane:'L', slug:'diff-full', size:'M', status:'planned', week:[7,8],
+  title:'Review the diff at a width you can actually read',
+  one:'Opening a diff takes over the window; the canvas becomes a narrow rail you can still switch branches in.',
+  why:`Geist Mono at 12.5px in a 420px panel is about 53 characters. Most real code lines are longer, so every
+  line wraps or truncates — which destroys the one thing a diff must preserve, the vertical alignment of
+  changed lines. Reviewing code at 420px is not a compressed review, it is a worse activity.`,
+  demo:'Select a node, open Diff; the panel goes full and a left rail lists the other branches.',
+  accept:[
+    'Three panel postures on one shortcut: peek (overlay, no reserved space), split (today\'s geometry), full (window, with a branch rail).',
+    'Panel width clamp becomes relative — the current constants allow 168px of canvas at minimum window width, narrower than one node.',
+    'Tab order follows use frequency: Agent, Diff, Terminal, Files, Preview.',
+    'The Agent tab absorbs a compact "files touched, +12/−4" strip — 80% of the time the question is "is this going somewhere sane", not "review this".'
+  ],
+  watch:[
+    'The panel is currently styled as a floating overlay (rounded, blurred, shadowed) while physically shrinking the canvas. It costs the layout of a split and reads as a transient. Pick one per posture; drop the backdrop blur in split.',
+    'The resize handle is a bare 8px div with no visible affordance, no role, and no keyboard.'
+  ],
+  deps:['S6'], soft:['C3'],
+  prompt:`Implement three panel postures — peek (overlay, reserves no space, Esc dismisses), split (reserves
+width, resizable), full (takes the window, canvas collapses to a ~200px branch rail) — on a single shortcut,
+with click-a-node → peek and open-diff → full. Make the width clamp relative to window width so the canvas
+never falls below two node widths. Reorder the tabs to Agent, Diff, Terminal, Files, Preview. Give the resize
+handle role=separator with aria-value* and arrow-key adjustment. Then build the Diff view in full posture.`
+},
+{
+  id:'L3', lane:'L', slug:'land-it', size:'L', status:'planned', week:[8,8],
+  title:'Land the branch, with an undo',
+  one:'One button lands the work on main, and a ten-second undo makes it safe to press.',
+  why:`Undo is what converts a frightening irreversible action into one people actually use — and it is cheap,
+  because you recorded the target's pre-merge sha and the worktree is still intact. Ship the undo before
+  anything else in this flow.`,
+  demo:'Land a branch; press undo; confirm main is back where it was and the worktree still exists.',
+  accept:[
+    'One primary action with a strategy selector — merge --no-ff, squash, rebase, open PR — remembered per project.',
+    'Default strategy detected from the repo\'s own history shape rather than asked.',
+    'Ten-second undo restoring the target to its recorded sha.',
+    'The node becomes a tombstone, not a deletion: dimmed, recessed, no panel, title showing "merged into main · abc1234". Auto-hidden next session behind a "Show merged (3)" chip.',
+    'Never merge inside the child\'s worktree — use the target\'s worktree or a scratch one, or you contaminate the branch the agent still holds.',
+    'Re-check ahead/behind immediately before landing: "main moved ahead by 4 commits since you reviewed."'
+  ],
+  watch:[
+    'Push is a checkbox, defaulted off, always.',
+    'Uncommitted changes on the child must be committed first — this is the one place an agent-authored commit message is unambiguously welcome. Uncommitted changes on the target must block or stash.',
+    'Empty diff after a rebase is common: say "nothing to land" and offer delete instead.',
+    'Children of a landed node keep their edges — provenance stays true — but their default land target must silently follow to the grandparent.'
+  ],
+  deps:['L1','L2','W3'], soft:[],
+  prompt:`Implement the land flow. One primary action with a strategy selector (merge --no-ff / squash /
+rebase / open PR) remembered per project, defaulting from the repo's own history shape. Never merge inside
+the child's worktree. Re-check ahead/behind immediately before landing and warn if the target moved. On
+success: a ten-second undo that resets the target to its recorded pre-merge sha, and the node becomes a
+dimmed tombstone rather than disappearing, auto-hidden next session behind a "Show merged (n)" chip. Push is
+a checkbox defaulted off. Handle: uncommitted on child (offer commit), uncommitted on target (block or
+stash), empty diff (offer delete), children (keep edges, retarget their default). Integration tests for each.`
+},
+{
+  id:'L4', lane:'L', slug:'conflicts', size:'M', status:'planned', week:[9,9],
+  title:'Hand the conflict to the agent that caused it',
+  one:'A conflicted land opens a conflict list with "resolve with agent" as the first option.',
+  why:`This is the strongest single argument for the product existing: the agent that wrote the branch is still
+  running in that worktree, with the context. Nothing else in the category can offer that.`,
+  demo:'Force a conflicting land; choose resolve-with-agent; watch it work in the right worktree.',
+  accept:[
+    'Conflicted is an attention state with a red ring, resolved by the same priority ladder as everything else.',
+    'Three actions: resolve with agent, open in editor, abort.',
+    'Abort always returns the repo to its pre-land state.'
+  ],
+  watch:[
+    'The agent must resolve in a worktree that is not the child\'s live one, or you contaminate the branch mid-review.',
+    'Do not auto-accept an agent conflict resolution. This is the highest-stakes edit in the product.'
+  ],
+  deps:['L3','A2'], soft:[],
+  prompt:`Implement conflict handling for the land flow. A conflicted land puts the node into a "conflicted"
+attention state and opens a conflict list with three actions: resolve with agent (spawn in a scratch worktree,
+never the child's live one), open in editor, abort (always restores the pre-land state). The agent's
+resolution is presented for review and never auto-accepted. Integration test forcing a real conflict.`
+},
+
+/* ── AGENT ──────────────────────────────────────────────────────────────── */
+{
+  id:'A1', lane:'A', slug:'runtime-interface', size:'S', status:'planned', week:[5,5],
+  title:'Draw the agent boundary before writing an adapter',
+  one:'A vocabulary of agent events exists that no vendor type ever crosses.',
+  why:`Two credible runtimes exist — Claude Code's headless stream-json, and ACP, which is jointly governed by
+  Zed and JetBrains with ~37 agents and a stable v1 wire protocol. Betting the hardest part of the product on
+  either without a seam is how you end up rewriting the renderer when the other one wins. AgentEvent is your
+  vocabulary, not a vendor's.`,
+  demo:'A fake adapter drives the whole panel with no vendor types anywhere in src/stores or src/components.',
+  accept:[
+    'AgentRuntime interface: start (async iterable of AgentEvent), interrupt, answerPermission.',
+    'AgentEvent covers started, text delta, tool call, tool result, permission request, done with cost and usage.',
+    'Vendor message types live only in the adapter and its pure normaliser. A lint boundary enforces it.',
+    'Subagent nesting is representable — Claude\'s stream carries a parent tool-use id that gives you the tree for free.'
+  ],
+  watch:[
+    'ACP v1 is stable and additive-only since launch; ACP v2 is a published draft that removes fs/*, terminal/* and session/load. Build to v1 if you build ACP at all, and feature-detect rather than version-compare.',
+    'The Claude CLI\'s own docs disagreed with the binary in three places during verification. Feature-detect via the capabilities array in system/init.'
+  ],
+  deps:['S1'], soft:[],
+  prompt:`Define the agent runtime boundary before any adapter exists. Create an AgentRuntime interface
+(start returning an AsyncIterable of AgentEvent; interrupt; answerPermission) and an AgentEvent union
+covering: started (session id, model, tools), text delta with optional parent tool-use id, tool call, tool
+result, permission request, and done (cost, usage, turns, stop reason). Write a fake adapter that drives the
+existing panel end-to-end. Add an import-boundary lint rule so no vendor SDK type can be imported from
+src/stores or src/components. No real agent yet.`
+},
+{
+  id:'A2', lane:'A', slug:'claude-adapter', size:'M', status:'planned', week:[8,9],
+  title:'A real agent, in the right worktree',
+  one:'Type a task on a node and a real Claude Code process works in that worktree, streaming as it goes.',
+  why:`Headless stream-json is the only option where every hard question has a verified answer today: sessions
+  persist to disk and resume across process death, tool calls and their results arrive as structured blocks,
+  permission decisions can be routed to your UI, and cost and token usage arrive in the result event.`,
+  demo:'Two agents on two branches, both visible on the map, both streaming.',
+  accept:[
+    'cwd is the worktree, not the repo root — the correctness bug that would let an agent commit to the wrong branch. Write this test first.',
+    'Environment sanitised: no inherited GIT_DIR or GIT_WORK_TREE, which would make every agent operate on the wrong repo.',
+    'session_id captured from the init event the moment it arrives, before any output, so a crash five seconds in is still resumable.',
+    'Do not parse a TUI. Screen-scraping ANSI out of a redrawing Ink app breaks on every release and yields no structured tool calls.',
+    'For diffs, do not parse the agent\'s output — the worktree is the diff. Run git diff when the turn ends.'
+  ],
+  watch:[
+    'Never default to bypassed permissions. An agent with filesystem access in a worktree can read ~/.ssh and every other repo on the machine.',
+    'A CLAUDE.md in a repository is untrusted input that the agent will read as guidance. Render agent output as untrusted: no raw HTML, no auto-executing links.',
+    'Do not auto-resume agents on launch. Rebuild the conversation from the persisted transcript, and only spawn on the next user message — otherwise you burn someone\'s budget while they are at lunch.'
+  ],
+  deps:['A1','S1'], soft:['W1'],
+  prompt:`Implement the Claude Code adapter for AgentRuntime using headless stream-json (--print
+--output-format stream-json --verbose). Requirements, in this order: (1) a test asserting the child spawns
+with cwd set to the worktree and a sanitised environment with no inherited GIT_DIR/GIT_WORK_TREE — write
+this first; (2) capture session_id from the init event before any other output and persist it per worktree;
+(3) normalise the stream to AgentEvent in a pure function with tests over captured fixtures, including split
+chunk boundaries; (4) resume via --resume across process death; (5) never default to bypassed permissions.
+Feature-detect capabilities from the init event rather than comparing versions. Use a fixture script, never a
+real agent, in CI.`
+},
+{
+  id:'A3', lane:'A', slug:'supervision', size:'M', status:'planned', week:[9,9],
+  title:'No orphans, ever',
+  one:'Force-quit the app with three agents running, relaunch, and nothing is left behind.',
+  why:`Zombie agent processes holding index.lock in someone's repository is a data-integrity incident, not a UX
+  bug. Killing the parent CLI does not necessarily kill its shell descendants, and Electron gives you no
+  reliable async window at quit.`,
+  demo:'kill -9 the app mid-turn; relaunch; the pid registry reaps the strays and reports what it cleaned up.',
+  accept:[
+    'Kill the process group, not the pid.',
+    'before-quit sends SIGTERM to every run, waits a bounded ~2s, then SIGKILL, preventing quit until done.',
+    'A pid-plus-start-time registry in app support, written on every spawn — the only thing that survives a hard crash.',
+    'Three exits distinguished: clean result, crash (offer resume), killed by us (intentional).'
+  ],
+  watch:[
+    'Supervision lives in the main process. The renderer can be reloaded and must not take agents with it.',
+    'An update must never fire while an agent is running or a worktree operation is in flight. Wire the updater into the same queue.'
+  ],
+  deps:['A2'], soft:['S3'],
+  prompt:`Implement agent process supervision in the main process. Spawn into a process group and kill the
+group, not the pid. On before-quit: SIGTERM all runs, wait up to 2s, SIGKILL stragglers, prevent quit until
+done. Maintain a pid + start-time registry in app support written on every spawn, and reap matching strays on
+next launch. Distinguish clean exit, crash (offer resume) and intentional kill. Integration tests using a
+fixture script that ignores SIGTERM on demand, asserting with ps that nothing survives.`
+},
+{
+  id:'A4', lane:'A', slug:'backpressure', size:'M', status:'planned', week:[9,10],
+  title:'Survive a token stream without melting the renderer',
+  one:'A ten-thousand-token turn replays at full speed across twenty nodes and the app holds sixty frames a second.',
+  why:`Partial-message streaming produces hundreds of events per second, and the current conversation store
+  appends with a spread — O(n) per token, O(n²) per turn. At ten thousand tokens that is tens of millions of
+  array copies and a garbage-collection storm. This is the most likely "the app becomes unusable after ten
+  minutes" bug, and it only appears under real load, never in a demo.`,
+  demo:'Replay a captured transcript at full speed; profile IPC volume, heap over thirty minutes, and frame times.',
+  accept:[
+    'Deltas coalesced on a ~50ms tick in the main process — one IPC message per frame, not per token.',
+    'Streaming text lives in its own field and is committed as one item at message end; the items array only ever grows by whole messages.',
+    'A ring buffer caps live items; older ones live in the on-disk transcript and page in on scroll.',
+    'Conversations are disposed when a project tab closes.'
+  ],
+  watch:[
+    'A high-frequency store is exactly where an unstable Zustand selector produces an infinite useSyncExternalStore loop. The README already warns about this; here it becomes load-bearing.',
+    'onlyRenderVisibleElements is currently false, so every node renders always, each holding a store subscription. Flip it once nodes stop being cheap.'
+  ],
+  deps:['A2'], soft:['C6'],
+  prompt:`Make the agent stream survivable. 1) Coalesce token deltas on a ~50ms tick in the main process so
+one IPC message crosses per frame. 2) In the renderer store, keep streaming text in a separate field and
+commit it as a single item at message end — the items array must only grow by whole messages, never per
+token. 3) Ring-buffer live items (cap ~2000) with older content paged from the on-disk transcript.
+4) Dispose conversations and subscriptions when a project tab closes. Benchmark: replay a 10k-token
+transcript at full speed with 20 nodes; report IPC message count, heap over 30 minutes and frame times
+before and after.`
+},
+{
+  id:'A5', lane:'A', slug:'permissions', size:'M', status:'planned', week:[10,10],
+  title:'The user owns every permission decision',
+  one:'An agent asking to run a command badges its node and waits, without seizing the window.',
+  why:`When an agent needs permission you are, by construction, looking at something else. A blocking modal is
+  the wrong shape: badge the node, fill the tray, and let the user answer three at once when they choose to.`,
+  demo:'Two agents both ask for permission; both nodes badge; answer both from the tray.',
+  accept:[
+    'Permission requests route to the UI and resolve a promise the runtime is awaiting.',
+    'Permission mode is a visible, per-node, explicit choice with a distinct visual state on the canvas.',
+    'Denials are recorded and shown in the turn summary.'
+  ],
+  watch:[
+    'Do not block the window. Do not auto-approve. Do not remember "always" globally — remember it per repository at most.'
+  ],
+  deps:['A2','A7'], soft:[],
+  prompt:`Route agent permission requests to the UI. The runtime awaits a promise the renderer resolves; the
+node badges and the "needs you" tray fills; nothing blocks the window. Permission mode is a per-node,
+visible, explicit choice rendered distinctly on the canvas, never defaulting to bypassed. Record denials and
+show them in the turn summary. Component and integration tests including two simultaneous requests.`
+},
+{
+  id:'A6', lane:'A', slug:'transcripts-cost', size:'M', status:'planned', week:[10,10],
+  title:'Transcripts and spend outlive the process',
+  one:'Quit with three agents mid-run, reopen, and every transcript is still there.',
+  why:`The README's decision not to persist conversations is correct while they are mock data and fatal once
+  they are real. A tool that loses your agent transcripts on quit is deleted in week one. But they go to
+  application support, never into someone's repository.`,
+  demo:'Quit mid-turn, relaunch, read the full history without spawning anything.',
+  accept:[
+    'Append-only NDJSON per run under application support, rotated by count and age.',
+    'Raw stderr in a separate capped file, for bug reports.',
+    'A per-worktree cost and token ledger, append-only, labelled as an estimate — the CLI\'s own cost figure is client-side.',
+    'Rebuilding the conversation on launch reads the transcript; it never spawns.'
+  ],
+  watch:[
+    'Never in the repo. Never in localStorage. The repo file stays provenance-only.'
+  ],
+  deps:['A2'], soft:['R5'],
+  prompt:`Persist agent transcripts and spend outside the user's repository. Append-only NDJSON per run under
+app.getPath('userData'), rotated by count and age; raw stderr in a separate capped file; an append-only cost
+and token ledger per worktree, presented as an estimate. On launch, rebuild the conversation view by reading
+the transcript — never by spawning. Nothing is written into the repo. Tests for rotation, for a partially
+written last line, and for a relaunch that reconstructs a mid-turn conversation.`
+},
+{
+  id:'A7', lane:'A', slug:'attention', size:'M', status:'planned', week:[10,10],
+  title:'Turn monitoring into a queue you drain',
+  one:'With eight agents running, one pill tells you three need you, and one key cycles them.',
+  why:`This is where the product is won or lost. The canvas cannot be the notification surface, because at the
+  moment an agent needs you, you are looking at something else. The canvas shows state; a separate,
+  always-reachable channel delivers demands.`,
+  demo:'Start eight agents; work in another app; get one coalesced notification and drain the tray on return.',
+  accept:[
+    'One badge slot per node showing only the highest-priority state: needs-permission > failed > conflicted > missing > ready > running > idle.',
+    'A "needs you" tray pill with a keyboard cycle, which disappears entirely at zero — no "all clear" chrome.',
+    'A dot on the project tab so a background project cannot be blocked in silence.',
+    'Dock badge counts blocked branches only, never running ones.',
+    'macOS notifications only for blocked and failed, only when not frontmost, coalesced into one per thirty seconds.'
+  ],
+  watch:[
+    'The anti-pattern, singular: notifying on completion. Done is good news and good news can wait. Notify on blocked.',
+    'Eight independently pulsing dots make the canvas breathe out of phase and the eye can never settle. Drive every pulse from one clock, or animate only the selected node.',
+    'Sound off by default. If ever, one sound, for blocked.'
+  ],
+  deps:['A2','C1'], soft:[],
+  prompt:`Build the attention model. One badge slot per node showing only the highest-priority state via a
+fixed ladder (needs-permission > failed > conflicted > missing > ready > running > idle). A "needs you" tray
+pill anchored top-centre with a keyboard cycle through blocked nodes in the order they blocked, disappearing
+entirely at zero. A status dot on each project tab. A dock badge counting blocked branches only. macOS
+notifications only for blocked and failed, only when the app is not frontmost, coalesced to one per 30s,
+clicking to focus and select. Drive every pulse animation from a single shared clock. No completion
+notifications anywhere.`
+},
+
+/* ── CRAFT ──────────────────────────────────────────────────────────────── */
+{
+  id:'C1', lane:'C', slug:'state-language', size:'M', status:'decide', week:[5,6],
+  title:'Collapse sixteen states onto three axes',
+  one:'A node at rest shows a name, one rail and at most one ring — everything else is one hover away.',
+  why:`The UI must eventually express sixteen states: clean, dirty, idle, queued, running, awaiting permission,
+  failed, merged, conflicted, prunable, locked, detached, ahead/behind, ready, PR open, root. Encoded one
+  badge at a time, that is a Christmas tree. Decide the language before the states arrive individually and
+  each gets its own colour.`,
+  demo:'Twelve nodes in twelve different states, all legible at a glance.',
+  accept:[
+    'Axis A — attention: zero or one value, the only axis permitted saturated colour, rendered as the card ring.',
+    'Axis B — activity: mutually exclusive, rendered as the existing 3px left rail. Never red.',
+    'Axis C — git facts: coexisting, rendered as one small mono line, only on hover and selection.',
+    'Merged is a recession, not a badge: quieter background, no ring, hollow rail. Done is what a healthy project accumulates most of.',
+    '--bw-running stops being byte-identical to --bw-accent; selection moves to a neutral ink ring so blue means activity alone.',
+    'Total canvas colour budget: blue, amber, green, plus one new red used only for failed and conflicted.'
+  ],
+  watch:[
+    'Three numbers per node (pending/running/done) is 24 numbers on an eight-node canvas, none of which answer "which needs me". Counts belong in the panel.',
+    'Reserve red exclusively for needs-you and failed. If red means busy, it means nothing.'
+  ],
+  deps:['S6'], soft:['A7'],
+  prompt:`Rework the node visual language onto three orthogonal axes. Axis A (attention: needs-permission,
+failed, conflicted, missing) is the card ring and the ONLY axis with saturated colour. Axis B (activity: idle,
+queued, running) is the existing 3px left rail and is never red. Axis C (git facts: ahead/behind, dirty,
+sha, locked) is one small mono line shown only on hover and selection. Merged nodes recede rather than badge.
+Fix --bw-running being byte-identical to --bw-accent and move the selection ring to a neutral ink tone. Move
+the three task-count numbers out of the node card into the panel. Keep the total canvas colour budget to
+blue, amber, green and one red.`
+},
+{
+  id:'C2', lane:'C', slug:'keyboard', size:'M', status:'planned', week:[6,7],
+  title:'A power user never needs the mouse',
+  one:'Open a repo, move through the tree, branch, rename and land — without touching the trackpad.',
+  why:`A repo-wide search finds exactly one key handler in the whole app: the branch-name editor's Enter and
+  Escape. There is no application menu, no accelerator, no palette. For a developer tool that is
+  disqualifying — and it is cheap to fix relative to everything else here.`,
+  demo:'Complete a full create-drive-land loop from the keyboard.',
+  accept:[
+    'An Electron menu with real accelerators — which also gives you the macOS menu bar the app currently lacks.',
+    'A command palette, and a fuzzy jump-to-branch. At twelve or more nodes this becomes the primary navigation.',
+    'The canvas is one tab stop with a roving tabindex and role=tree: right is deeper, up/down are siblings. This is the standard ARIA tree pattern and it maps exactly onto a left-to-right tree.',
+    'A parallel visually-hidden role=tree mirror driven by the same model, with the canvas aria-hidden. One implementation serves both the keyboard user and the screen reader.',
+    'Escape is progressive: cancel edit, then deselect, then collapse the panel.'
+  ],
+  watch:[
+    'A live bug today: the + and the delete button live inside opacity-0 containers that clear only on group-hover, but remain in the tab order. Keyboard focus can land on a fully invisible control. Add group-focus-within alongside every group-hover.',
+    'Panel tabs are five plain buttons with no tablist semantics — every screen reader announces five unrelated buttons.',
+    'Reduced motion is applied to two 6px pulsing dots and not to the full-canvas fitView camera moves, which are vastly more provocative.'
+  ],
+  deps:['S6'], soft:['C1'],
+  prompt:`Build the keyboard layer. 1) An Electron application menu with accelerators for open folder, new
+tab, close tab, tab 1-9, prev/next tab, settings. 2) A command palette and a fuzzy jump-to-branch.
+3) Canvas as a single tab stop with a roving tabindex and role=tree semantics — right for first child, left
+for parent, up/down for siblings, Enter to open, N for new child, F2 rename, C collapse, Cmd-Backspace
+delete. 4) A parallel visually-hidden role=tree mirror with aria-level/setsize/posinset derived from the same
+tree, with the visual canvas aria-hidden. 5) Progressive Escape. Also fix: group-focus-within on every
+hover-revealed control, tablist semantics on the panel tabs, and honour prefers-reduced-motion for fitView
+durations, not just the pulsing dots.`
+},
+{
+  id:'C3', lane:'C', slug:'scope-the-panel', size:'S', status:'decide', week:[5,5],
+  title:'Cut three of the five panel tabs',
+  one:'The panel does two things well instead of five things badly.',
+  why:`View, Terminal and File are an editor, and the user already has one. Terminal in particular is the
+  biggest trap on the list — pty management, scrollback, shell integration, xterm performance — while
+  "open in Terminal" is one line of code for ninety percent of the value.`,
+  demo:'The panel offers Agent and Diff; a button opens the worktree in the user\'s editor and another in Terminal.',
+  accept:[
+    'PlaceholderTab shrinks to two tabs rather than being filled in five times.',
+    'Open-in-editor and open-in-Terminal buttons on every node.',
+    'A decision line recorded in the spec so this does not get re-argued.'
+  ],
+  watch:[
+    'If Terminal ever returns: node-pty is now a Node-API module shipping prebuilds, so electron-rebuild is no longer needed — but its all-platforms-in-one-tarball layout breaks @electron/universal and bloats the bundle. Prefer the per-platform fork. It also ships a spawn-helper executable that must be unpacked from asar, keep its executable bit, and be signed.',
+    'auto-unpack-natives is installed but not registered in the Forge plugins array — the day any native module arrives, packaging breaks silently. R1 fixes that.'
+  ],
+  deps:[], soft:['L2'],
+  prompt:`Reduce the node panel from five tabs to two: Agent and Diff. Remove the View, Terminal and File
+placeholder tabs and the PANEL_TABS entries behind them, migrating any persisted panel.tab value that points
+at a removed tab. Add "open in editor" and "open in Terminal" actions on the node instead. Record the
+decision and its rationale in the design spec.`
+},
+{
+  id:'C4', lane:'C', slug:'dark-and-tokens', size:'S', status:'next', week:[2,2],
+  title:'Define the dark palette now, build dark mode later',
+  one:'Every colour and every elevation in the app comes from a token that has both a light and a dark value.',
+  why:`The app is not pinned to light by decision — it is pinned because half the palette has no dark values.
+  And elevation is expressed as eight hard-coded black shadows across the components. Dark UIs express
+  elevation with lighter borders and surface steps, not black shadows, so adding dark mode later is not a
+  token swap but a redesign of the elevation system. That cost grows with every shadow committed. This is an
+  afternoon now and a week in October.`,
+  demo:'Flip a token file and the whole app renders coherently dark, even before any toggle ships.',
+  accept:[
+    'Eleven --bw-* values gain dark counterparts.',
+    'Every hard-coded rgba(0,0,0,x) shadow routed through --bw-elev-1/2/3.',
+    'main.ts backgroundColor comes from the same source, so even the launch flash is right.'
+  ],
+  watch:[
+    'This is a prerequisite disguised as polish. Do it in week two, not week nine.'
+  ],
+  deps:[], soft:['C1'],
+  prompt:`Prepare the app for dark mode without shipping a toggle. Add dark counterparts for all eleven
+--bw-* tokens in global.css. Replace every hard-coded rgba(0,0,0,x) box-shadow across the components with
+--bw-elev-1/2/3 tokens that use black shadows in light and lighter borders plus surface-lightness steps in
+dark. Drive main.ts's window backgroundColor from the same source. Do not add a user-facing toggle yet —
+just make the switch a one-line change later.`
+},
+{
+  id:'C5', lane:'C', slug:'first-run', size:'M', status:'planned', week:[7,7],
+  title:'Get to two agents running in one gesture',
+  one:'A new user sees two branches with work on them within thirty seconds of opening a repo.',
+  why:`The moment of value is not creating a branch — it is the first frame where two nodes are visibly running
+  at once and you understand both without clicking. Today that takes forty-five to ninety seconds and hinges
+  on discovering a plus button that only appears on hover, on a canvas showing a single card. Users who miss
+  it see a one-card mind map and quit.`,
+  demo:'First run on a fresh repo: pick a folder from recents, one gesture, two branches.',
+  accept:[
+    'Recents in the empty state — the biggest single onboarding win, and tabs are already persisted so the data exists.',
+    'The whole empty state is a drag-and-drop target.',
+    'On a single-node canvas the + renders at rest at reduced opacity with the hint beside it, fading to hover-only once the tree has two or more nodes.',
+    'A first-run gesture that creates two children at once. Going from one node to three in one action is the difference between a toy and a control tower.'
+  ],
+  watch:[
+    'The current hint is 11px muted text pinned to the bottom-left corner, pointer-events-none, pointing at a node in the centre.',
+    'Once Stage 1 ships, a repo with existing worktrees already opens populated — this mostly matters for the common case of a repo with exactly one worktree.'
+  ],
+  deps:['S6','W1'], soft:['C2'],
+  prompt:`Cut time-to-value on first run. 1) Add a recents list to the empty state (tabs are already persisted;
+add closed-project history), plus drag-and-drop of a folder onto the whole surface, plus a keyboard shortcut
+on the open button. 2) On a single-node canvas, render the + affordance at rest at reduced opacity with the
+hint text beside it rather than in the corner; revert to hover-only once the tree has two or more nodes.
+3) Add a first-run gesture that creates two child branches in one action. Measure and report time from launch
+to two nodes.`
+},
+{
+  id:'C6', lane:'C', slug:'scale-the-canvas', size:'M', status:'planned', week:[8,8],
+  title:'Stay legible past a dozen nodes',
+  one:'Twenty sibling branches off main stay readable instead of shrinking to five-pixel text.',
+  why:`With the current node and separation constants, only three ranks fit at zoom 1 in the default window —
+  a depth-four chain already forces the map to shrink. Twenty siblings off root is 1680px of stack against
+  740px available, which fits the view at about 0.44 zoom, rendering the 12.5px names at five and a half
+  pixels. And twenty siblings is not a corner case: it is exactly what the pitch describes.`,
+  demo:'Open a repo with twenty flat branches and read every name.',
+  accept:[
+    'Search and jump-to-branch — at twelve or more nodes this becomes the primary navigation and demotes the canvas to the overview it is good at.',
+    'Collapse subtree, with the collapsed set excluded from the layout input rather than hidden after the fact.',
+    'Filter chips that drop non-matching nodes to reduced opacity rather than removing them — preserving the map\'s shape is the point of having a map.',
+    'A rank exceeding roughly eight nodes wraps within the rank instead of stacking forever.',
+    'onlyRenderVisibleElements flipped once nodes stop being cheap.'
+  ],
+  watch:[
+    'Design for excellent at 3–12 and graceful at 20–30, and say so out loud. A hundred worktrees is a hundred full checkouts; designing for it would cost the things that make a dozen good.',
+    'dagre is ~16ms at 100 nodes, ~100ms at 250 and 341ms at 500 — and it runs synchronously on the render path.',
+    'Middle-truncate long names: the distinguishing part of feature/JIRA-1234-refactor-auth-middleware is the tail. And add a title attribute — the full name currently appears nowhere in the app.'
+  ],
+  deps:['S6'], soft:['C2'],
+  prompt:`Make the canvas legible past a dozen nodes. Add: fuzzy search / jump-to-branch; collapse-subtree
+with the collapsed nodes excluded from layoutTree's input (not hidden afterwards) and the state persisted;
+filter chips that dim rather than remove; within-rank wrapping when a rank exceeds ~8 nodes; middle-truncated
+node labels with a title attribute and dir="auto"; and onlyRenderVisibleElements set to true. Also reduce
+rankSep so a fourth rank fits at zoom 1 in the default window. Report the fitView zoom for a 20-sibling tree
+before and after.`
+},
+
+/* ── RELEASE ────────────────────────────────────────────────────────────── */
+{
+  id:'R0', lane:'R', slug:'apple-enrolment', size:'S', status:'next', week:[1,4],
+  title:'Start the Apple enrolment clock',
+  one:'The Developer ID certificate exists before you need it.',
+  why:`$99 a year and thirty minutes of forms — but organisation enrolment needs a D-U-N-S number and can take
+  one to four weeks. It is the only item in the entire plan with an unbounded external wait, it blocks
+  signing, notarization and every release increment, and it costs nothing to start today.`,
+  demo:'A Developer ID Application certificate in Keychain and a p12 in GitHub secrets.',
+  accept:[
+    'Developer ID Application certificate — not Mac App Store.',
+    'p12 and password in repository secrets; an App Store Connect API key rather than an Apple ID password, so CI is not coupled to your 2FA.'
+  ],
+  watch:['Do this first. Everything in the release lane waits on it.'],
+  deps:[], soft:[],
+  prompt:`(no code) Enrol in the Apple Developer Program, generate a Developer ID Application certificate,
+export it as a .p12, and add MACOS_CERTIFICATE, MACOS_CERTIFICATE_PWD and an App Store Connect API key to the
+repository secrets. Record in the spec which team id and bundle id the project will use.`
+},
+{
+  id:'R1', lane:'R', slug:'forge-identity', size:'S', status:'next', week:[2,2],
+  title:'Give the app an identity Forge can sign',
+  one:'The build produces a properly named, properly iconed DMG for macOS and nothing for Windows.',
+  why:`The makers are backwards for the product: Squirrel for Windows, rpm and deb for Linux, and only a zip for
+  darwin. The bundle id defaults to com.electron.branchwise, there is no icon, and the publisher points at a
+  repository that may not exist. None of it can be signed as-is.`,
+  demo:'npm run make produces a DMG with the right name and icon.',
+  accept:[
+    'appBundleId, icon, appCategoryType set; a DMG maker added; rpm, deb and squirrel dropped along with their dependencies.',
+    'auto-unpack-natives registered in plugins — it is installed but unregistered, and will break packaging silently the day a native module arrives.',
+    'The publisher points at the real owner/repo.',
+    'Ship both DMG (for humans) and ZIP (as a Squirrel update payload).',
+    'arm64-only for v1.0 — an explicit decision, not an accident of the runner\'s architecture.'
+  ],
+  watch:[
+    'The fuse configuration is already good — RunAsNode off, asar-only loading, embedded integrity validation. But integrity validation only protects a signed app, so today it is a no-op.'
+  ],
+  deps:[], soft:['R0'],
+  prompt:`Fix the Electron Forge configuration for a macOS-first product. Set appBundleId, icon and
+appCategoryType; add @electron-forge/maker-dmg and keep MakerZIP for darwin; remove the squirrel, rpm and deb
+makers and their devDependencies; register plugin-auto-unpack-natives in the plugins array; point the GitHub
+publisher at the real owner/repo; and set the build architecture explicitly to arm64 with a comment recording
+that universal is a deferred one-day job. Verify npm run make produces a named, iconed DMG.`
+},
+{
+  id:'R2', lane:'R', slug:'sign-and-notarize', size:'M', status:'planned', week:[5,5],
+  title:'An app that opens on someone else\'s Mac',
+  one:'A downloaded build launches on a clean Mac with no Gatekeeper warning and no terminal incantation.',
+  why:`Today npm run make produces a bundle that shows "branchwise is damaged and can't be opened" on any Mac
+  but yours — and that is the entire first impression for your first ten testers. Signing and notarization
+  are a day-one blocker, not a launch-week chore.`,
+  demo:'Airdrop the DMG to another Mac and double-click it.',
+  accept:[
+    'Hardened runtime with JIT entitlements — Electron\'s V8 will not start without them.',
+    'osxSign and osxNotarize wired through Forge, not called by hand; the deep-signing order (helpers, framework, then app) is the classic manual failure.',
+    'Stapling verified in CI with spctl --assess --type execute and stapler validate. Without stapling, a user offline on first launch is rejected.',
+    'No App Sandbox. A tool whose job is running git and coding agents across the filesystem cannot live in one.'
+  ],
+  watch:[
+    'Budget for the first-launch TCC prompts when a user picks a repo under Documents or Desktop. That is a UX item you will not expect.',
+    'The first notarization submission commonly fails on a missed helper binary. The notary log is specific and readable.'
+  ],
+  deps:['R0','R1'], soft:[],
+  prompt:`Add code signing and notarization. Configure packagerConfig.osxSign with hardened runtime and an
+entitlements.plist containing allow-jit, allow-unsigned-executable-memory and disable-library-validation (no
+App Sandbox). Configure osxNotarize using an App Store Connect API key. In CI, import the p12 into a
+throwaway keychain, build, and verify with spctl --assess --type execute -vv and stapler validate as
+explicit failing steps. Report a successful notarization log.`
+},
+{
+  id:'R3', lane:'R', slug:'release-pipeline', size:'S', status:'planned', week:[5,6],
+  title:'A tag produces a release',
+  one:'Pushing v0.9.0 builds, tests, signs, notarizes and publishes — on macOS.',
+  why:`The publish workflow currently runs on windows-latest, is triggered only by hand, runs npm ci under a
+  step called "Install and build" that does not build, and verifies nothing before publishing.`,
+  demo:'Push a tag; download the artifact from the release page.',
+  accept:[
+    'runs-on macos-14; triggered by push of a v* tag.',
+    'The job fails if the tag does not match package.json version.',
+    'typecheck, test and package all run before publish — never publish an artifact that was not tested in the same job.',
+    'timeout-minutes set, and artifacts uploaded even on failure.'
+  ],
+  watch:['Node version pinned identically to every other job via .nvmrc.'],
+  deps:['R2','F2'], soft:[],
+  prompt:`Rewrite publish.yaml: runs-on macos-14, triggered on push of tags matching v*, node from .nvmrc,
+a step asserting the tag equals package.json version, then typecheck + test + package + publish in that order
+in the same job, with timeout-minutes: 45 and artifact upload on always(). Rename the misleading
+"Install and build" step. Do a dry run against a prerelease tag.`
+},
+{
+  id:'R4', lane:'R', slug:'version-and-update', size:'M', status:'planned', week:[9,9],
+  title:'The app knows what it is and whether it is old',
+  one:'An About panel shows the version and short sha, and tells you when a newer one exists.',
+  why:`update-electron-app is a runtime dependency doing nothing — the repo constant is empty and the check
+  early-returns. That is honest, but it means there is no update path at all, and the version in package.json
+  is read by nothing.`,
+  demo:'Open About; see 0.9.2 (a3f9c21); see "0.9.3 available".',
+  accept:[
+    'Version and short sha visible in the app, with a release-notes link.',
+    'A manual update check against the GitHub releases API — a half-day that removes the whole update-server problem from the critical path.',
+    'An update never fires while an agent is running or a worktree operation is in flight.'
+  ],
+  watch:[
+    'update.electronjs.org needs a public repository and a signed app. If the repo stays private, that route is unavailable and electron-updater is the alternative.',
+    'package.json is currently marked private while the LICENSE is MIT. Resolve the contradiction — it is a positioning decision, not a config detail.'
+  ],
+  deps:['R3'], soft:['A3'],
+  prompt:`Add version and update UX. An About panel showing app.getVersion() plus the short git sha baked at
+build time, with a release-notes link. A manual "check for updates" that queries the GitHub releases API and
+reports whether a newer version exists, with a download link — no update server. The check must refuse to
+run, and any future auto-update must refuse to install, while an agent process is running or a git write is
+in flight. Resolve package.json "private": true against the MIT LICENSE and record the decision.`
+},
+{
+  id:'R5', lane:'R', slug:'diagnostics', size:'M', status:'planned', week:[8,8],
+  title:'Debuggable without a telemetry pipeline',
+  one:'A user hands you a redacted diagnostics blob and you can see what happened.',
+  why:`This gets roughly eighty percent of the debugging value of telemetry with none of the privacy risk, and
+  it is the right shape for a solo maintainer supporting early users over issues. Real telemetry, for a tool
+  that sits inside private repositories, is a trust cost with no signal while you have no users.`,
+  demo:'Click "copy diagnostics", read the preview, paste it into an issue.',
+  accept:[
+    'Structured NDJSON logs to the OS log directory, size-capped and rotated, replacing console.log which vanishes in a packaged app.',
+    'Logs record the shape of operations, never their content: a salted repo hash and a classified error, never raw stderr.',
+    'Copy diagnostics shows the blob before copying, redacts by default, and copies to the clipboard — never uploads.',
+    'Zero network requests other than the update check, verifiable with a packet capture during a full session.'
+  ],
+  watch:[
+    'Raw git stderr routinely contains absolute paths and branch names, and a branch name is frequently the feature you are building.',
+    'Do not build opt-in analytics for v1.0. You have no users; the signal is nil and the trust cost is real.'
+  ],
+  deps:['W4'], soft:['A6'],
+  prompt:`Add local observability. 1) Structured NDJSON logging to app.getPath('logs'), size-capped with
+rotation, replacing console.log in the main process. Log operation shape only: a salted hash of the repo path,
+a duration, an ok flag, and a classified error enum — never raw stderr, paths, or branch names. 2) A "copy
+diagnostics" action producing a preview dialog with app version, OS, Electron and git versions, project and
+node counts, and the last 50 log lines, redacted by default with an explicit "include paths" toggle that is
+off, copied to the clipboard and never uploaded. Add a test asserting no network calls occur during a session
+other than the update check.`
+},
+{
+  id:'R6', lane:'R', slug:'harden-the-shell', size:'S', status:'next', week:[3,3],
+  title:'Shrink the blast radius before it renders untrusted content',
+  one:'The renderer runs without Node, behind a CSP, and cannot navigate itself anywhere.',
+  why:`nodeIntegration is on alongside contextIsolation. It buys nothing — the entire main-process surface goes
+  through oRPC over a MessagePort and nothing in the renderer calls require. It is a straight downgrade of
+  the blast radius of any renderer-side flaw, in an app that is about to render agent output and repository
+  file contents: exactly the untrusted-content case the guidance is written for.`,
+  demo:'The app runs identically with nodeIntegration off and a CSP in place.',
+  accept:[
+    'nodeIntegration false; sandbox true evaluated and enabled if nothing breaks.',
+    'A Content-Security-Policy.',
+    'will-navigate and setWindowOpenHandler guards, so an injected link in rendered agent output cannot navigate the app frame.',
+    'The IPC path allowlist from F5 in place, so a renderer flaw cannot write JSON anywhere the user can write.'
+  ],
+  watch:[
+    'Do this before A2, not after. The day real agent output renders in the window is the day this stops being theoretical.'
+  ],
+  deps:[], soft:['F5','A2'],
+  prompt:`Harden the Electron shell. Set nodeIntegration:false and evaluate sandbox:true (enable it if nothing
+breaks — the renderer talks to main only over the oRPC MessagePort). Add a Content-Security-Policy. Add
+will-navigate and setWindowOpenHandler guards so nothing in rendered content can navigate the app frame or
+open arbitrary windows. Verify the app still starts, the folder picker works and the canvas renders.`
+},
+];
+
+/* ── decisions ─────────────────────────────────────────────────────────── */
+const ADR = [
+{d:'Git owns which nodes exist; branchwise owns only how they hang together.', s:'settled',
+ why:'The two sides can never disagree because they no longer describe the same thing. graph.json degrades to an annotation table.',
+ cost:'Very high — it is the spine of the v2 model and the reason the canvas can never lie.'},
+{d:'A node is a worktree, not a branch.', s:'settled',
+ why:'A branch with no worktree is not on the canvas. The set is naturally bounded, and an agent needs a worktree to work in at all.',
+ cost:'High. It also caps realistic node counts at 5–20, which is what makes the tree layout defensible.'},
+{d:'An edge is provenance — “created from” — not the current merge base.', s:'open',
+ why:'Clean and stable, but users will read a left-pointing edge as “is currently based on”. After a rebase that reading is false while the edge stays “true”. Two independent reviews flagged it.',
+ cost:'Low to amend. Proposal: keep provenance as the edge, add a computed diverged/rebased/merged marker so the map can admit history moved under it. Do not add a fourth parentSource called “actual”.'},
+{d:'Node identity is the worktree path.', s:'reverse',
+ why:'Breaks four ways: git reports realpaths while the picker returns symlinked ones; git worktree move looks like remove+add; APFS case folding; and a bare main repo has no toplevel. The .git/worktrees/<id> admin directory survives all of it.',
+ cost:'Cheap now, a migration once graph.json files exist in users’ repos. See F4.'},
+{d:'.branchwise/graph.json is committed to the repository.', s:'open',
+ why:'Provenance is objectively shared knowledge and survives a clone; the file is small and diffs line-per-branch. Against: some teams refuse tool metadata in their repo.',
+ cost:'Must be decided before sorted-key serialization ships, or every user gets a spurious diff later. Either way, ship a .branchwise/.gitignore so the tool never dirties git status.'},
+{d:'Split persistence: provenance in the repo, everything else in application support.', s:'open',
+ why:'panel width, collapsed state and selection are per-user, per-machine, per-window — the same argument the README already makes for not persisting the viewport, applied one field short.',
+ cost:'Low now. Do it with F5.'},
+{d:'Agent runtime is Claude Code headless stream-json first, behind an AgentRuntime interface.', s:'settled',
+ why:'It is the only option where every hard question has a verified answer today: resume across process death, structured tool calls, permission routing, cost accounting. ACP is a credible second implementation — jointly governed by Zed and JetBrains, stable v1 — but betting the hardest part of the product on a spec you cannot pin is a worse first move.',
+ cost:'Low, provided AgentEvent is your vocabulary and no vendor type reaches src/stores.'},
+{d:'Never parse a terminal UI to drive an agent.', s:'settled',
+ why:'Screen-scraping ANSI out of a redrawing Ink app breaks on every release, yields no structured tool calls, no diffs and no token accounting.',
+ cost:'None. A PTY is still the right tool for an interactive Terminal tab — a different, orthogonal job.'},
+{d:'Provision worktrees by copy-on-write clone from the parent; never symlink, never hardlink.', s:'settled',
+ why:'A 200MB tree clones in ~4ms and costs no disk on APFS. Symlinked node_modules corrupts silently when two agents install; hardlinks let a worktree write mutate the shared store.',
+ cost:'Low. But detect pnpm and let it use its own store instead of cloning its symlink structure.'},
+{d:'Nodes are never freely draggable.', s:'settled',
+ why:'Positions carry no information, so there is no user intent to preserve. Every canvas that allows both auto-layout and manual positioning grows a re-layout button people are afraid to press.',
+ cost:'None. Drag-to-reparent is editing the model, not the view, and must feel categorically different.'},
+{d:'The panel ships with two tabs; View, Terminal and File are cut.', s:'open',
+ why:'They are an editor, and the user has one. Open-in-editor and open-in-Terminal are one line each for most of the value.',
+ cost:'Trivial now, and it removes five placeholder surfaces from every subsequent design conversation.'},
+{d:'Agent transcripts are persisted — to application support, never the repo.', s:'settled',
+ why:'Reverses the README’s current line, correctly: not persisting is right for mock data and fatal for real. A tool that loses your transcripts on quit is deleted in week one.',
+ cost:'Low. The repo file stays provenance-only.'},
+{d:'arm64-only for v1.0.', s:'open',
+ why:'Covers the overwhelming majority of “runs coding agents on a laptop in 2026”. Universal is a one-day job available at any time.',
+ cost:'None, provided it is an explicit decision rather than an accident of the CI runner’s architecture.'},
+{d:'Open source, bring-your-own subscription, never proxy credentials.', s:'open',
+ why:'The category price is zero and was set by funded competitors. package.json says private while LICENSE says MIT — resolve it. Local-only credential handling is a genuine trust asset worth stating out loud.',
+ cost:'Low to decide, high to reverse once published.'},
+{d:'Design the canvas for excellent at 3–12 nodes and graceful at 20–30 — not for 100.', s:'settled',
+ why:'A hundred worktrees is a hundred full checkouts. Designing for it would cost the calm that makes a dozen good.',
+ cost:'None, provided it is said out loud so nobody optimises for a case that will not occur.'},
+];
+
+/* ── risks ─────────────────────────────────────────────────────────────── */
+const RISKS = [
+{r:'Platform absorption — the model vendor ships the 80% case for free.', sev:'hi',
+ sig:'Any Claude Code or Cursor release note mentioning branch stacking, worktree lifecycle or a dependency view. Or a beta user saying “I just use the built-in agent list now”.',
+ act:'Compete only where a list structurally cannot go: dependent work, merge ordering, sibling conflict heat.'},
+{r:'The tree is flat, so the metaphor is decoration.', sev:'hi',
+ sig:'Instrument depth from day one. If median max depth is 2 or less and over 80% of nodes hang off root across your first twenty users, the canvas is not doing work.',
+ act:'Measure before building anything expensive on top of it. If it is flat, the janitor and provisioning value still stands — the spatial layout does not.'},
+{r:'A concurrency bug loses uncommitted work and trust never comes back.', sev:'hi',
+ sig:'Any report containing “index.lock”. Any delete path that removes a worktree with uncommitted changes without the dialog firing.',
+ act:'Two-lane queue, real raced integration tests, and a delete dialog that shows the file count before the confirm.'},
+{r:'The streaming transport cannot do abort or backpressure.', sev:'hi',
+ sig:'The spike takes more than two days, or memory grows across a 100k-event stream.',
+ act:'Fallback to a dedicated MessagePort with manual framing — half a day now, a week later. Spike in week one.'},
+{r:'Half-finished refactors — already realised once.', sev:'hi',
+ sig:'git status showing a deleted source file with live importers; a green test suite on a tree that does not build.',
+ act:'typecheck and package in the definition of done, both in CI. Never delete a module and its consumers in separate sessions.'},
+{r:'Worktree economics cap node count at three, so the canvas never earns its pixels.', sev:'md',
+ sig:'Users create two or three nodes and stop, or ask for containers.',
+ act:'Provisioning by inheritance (W2) is the direct answer. Containers are a different product.'},
+{r:'Screen-budget inversion — the panel is where the work is, the canvas is where the pixels are.', sev:'md',
+ sig:'The cheapest telemetry you will ever collect: panel.width. If users pin it to the maximum and stop looking at the canvas, the layout is wrong.',
+ act:'Three postures, and a full-window diff mode.'},
+{r:'Unsigned distribution kills the first impression.', sev:'md',
+ sig:'Your first external tester sends a screenshot of “branchwise is damaged and can’t be opened”.',
+ act:'Start Apple enrolment today; it is the only unbounded external wait in the plan.'},
+{r:'Token-stream volume makes the app unusable after ten minutes.', sev:'md',
+ sig:'Frame times degrading over a long session; heap growth across a transcript; the fans.',
+ act:'Coalesce in main, ring-buffer in the store, keep streaming text out of the items array.'},
+{r:'Commoditisation — the category price is zero and three companies already folded.', sev:'md',
+ sig:'You cannot name a profitable competitor; a funded entrant ships a canvas view.',
+ act:'Open source, BYO subscription, and choose a durable framing (“git worktrees, finally usable”) over the hype framing.'},
+{r:'Dependency churn from ungrouped weekly bots against a gate-less CI.', sev:'md',
+ sig:'A dependabot PR that changes behaviour and passes; bump-ui silently rewriting UI components with upstream defaults.',
+ act:'Group dependabot, ignore majors for electron/vite/typescript/react/biome, run bump-ui only on a clean tree in its own commit and always diff it.'},
+{r:'Electron performance against Rust-native competitors this audience notices.', sev:'lo',
+ sig:'RSS over ~1.5GB with six nodes and two live agents; the first fan-noise complaint.',
+ act:'Close-project disposal path, onlyRenderVisibleElements, and a hard cap on live conversation items.'},
+{r:'Positioning ambiguity — the copy sells to one user, the architecture serves another.', sev:'lo',
+ sig:'Signups from “vibe coding” copy churn within a week while the users who stay ask about rebase ordering.',
+ act:'The copy is wrong, not the architecture. Rewrite the copy.'},
+];
+
+/* ── edge cases ────────────────────────────────────────────────────────── */
+const EDGES = [
+['git','Symlinked repo path (/tmp → /private/tmp)','git always reports realpaths; the folder picker does not. Root comparison fails, an arbitrary worktree becomes root, selection resets every reload.','Canonicalise every path at the boundary. F4.'],
+['git','git rev-parse --git-common-dir returns a relative path','The type documents it as absolute. The watcher then watches a path relative to the process cwd and silently sees nothing.','Pass --path-format=absolute. F4.'],
+['git','Bare main repository with linked worktrees','No HEAD line, and rev-parse --show-toplevel is fatal. Current code filters the bare entry and promotes an arbitrary worktree to root — a plausible, wrong tree. This is the standard layout for heavy worktree users.','Synthetic root node with no branch. S5.'],
+['git','git worktree move','Path-keyed diffing sees remove + add: node dies and is reborn, selection lost, agent session orphaned.','Identity from the admin directory. F4.'],
+['git','git worktree lock / prunable reasons','Reasons are parsed away into booleans, but “locked: agent running” is the most important line in the delete dialog, and remove on a locked tree needs -f -f.','Widen the schema to carry the reason. S8.'],
+['git','Case-insensitive APFS','feat/x and Feat/X are distinct strings but the same file — git itself refuses the second branch, and the worktree directory collides.','Case-fold collision checks on darwin; disambiguate with a short hash. W1.'],
+['git','Non-Latin branch names','The slug regex strips everything, the slug empties, and the fallback literal “branch” collides on the second one. Hits any non-English speaker immediately.','Append a short hash when a slug degrades. W1.'],
+['git','Submodules','git worktree add leaves them empty and git status reports clean. An agent sees a missing dependency tree with no explanation.','Detect .gitmodules; init or warn loudly. W1.'],
+['git','Sparse checkout','Sparse config is per-worktree, under .git/worktrees/<id>. New worktrees materialise the whole monorepo — minutes and gigabytes per node.','Replicate the main worktree’s sparse config. W1.'],
+['git','Shared hooks and core.hooksPath','Hooks live in the common dir and run for every worktree, so a repo’s post-checkout executes the instant a user clicks +. core.hooksPath can point into the tracked tree, which is committable.','Disable hooks unless opted in; warn when a repo has them. W1.'],
+['git','Reflog expiry and git gc --auto','After expiry the reflog is empty with exit code 0 and the log file remains as a zero-byte file. Provenance is silently, unrecoverably gone.','Persist learned parents on first sight, synchronously. S4.'],
+['git','packed-refs after gc','Loose refs vanish into packed-refs; a recursive watch on refs/heads stops producing events.','Watch packed-refs too, and keep the re-list unconditional. S7.'],
+['git','Empty repo (unborn HEAD)','Branches cannot be created at all.','Label the root “no commits” and offer the first commit — never show a + that can only fail. S5.'],
+['git','Network volumes (SMB/NFS)','FSEvents does not work and can deliver nothing rather than erroring — the app syncs once and freezes forever, silently.','The 5s poll fallback covers it. Detect and say so. S5/S7.'],
+['git','60+ worktrees','Listing is 21ms; sixty reflog subprocesses are 758ms, landing in the serial queue on first open.','Read the reflog file directly — eight times faster. S4.'],
+['git','Very large monorepo','worktree add is minutes with no parseable progress.','--no-checkout then a progress-reporting checkout, plus cancel. W1.'],
+['ui','Folder moved or deleted while open','projectExists runs once on mount and is never re-checked; saveGraph then fails to a console.error. Annotations are lost with no signal.','Watch the project root; banner with Locate / Close. S5.'],
+['ui','Unreadable or v1 graph.json','Every error returns null → seed doc → immediate overwrite. An unreadable file is a deleted file.','ENOENT seeds; everything else errors and writes nothing. F5.'],
+['ui','git binary missing','execFile ENOENT is swallowed to null, indistinguishable from “not a repo”.','Check once at startup; suggest xcode-select --install. S5.'],
+['ui','Very long branch names','A 184px card holds about 20 monospace characters and there is no title attribute, so the full name appears nowhere in the app.','Middle-truncate, add title, cap width growth. C6.'],
+['ui','RTL and mixed-direction names','No dir attribute, so the ellipsis lands on the wrong side and mixed strings reorder unpredictably.','dir="auto" on names and paths; wrap paths in bdi. C6.'],
+['ui','Twenty siblings off root','1680px of stack against 740px of canvas; fitView lands near 0.44 zoom and 12.5px labels render at 5.5px.','Within-rank wrapping, collapse, search. C6.'],
+['ui','Delete and create share one hover','The trash and the + appear together, about 20px apart, and delete cascades with no confirmation.','Separate them in space; confirmation dialog. W3.'],
+['ui','Agent asks permission while you are elsewhere','A modal seizes a window you are not looking at.','Badge the node, fill the tray, answer several at once. A5/A7.'],
+['ui','Eight agents running at once','Eight out-of-phase pulses; 24 status numbers; red used for “busy” so red means nothing.','One badge slot, one shared animation clock, colour for state only. C1.'],
+['sec','Malicious repository','Hooks execute on worktree add; core.pager, diff textconv, filter clean/smudge and credential.helper all name executables that git will run during ordinary reads.','Disable hooks by default, pin fsmonitor off, treat an unopened repo as untrusted. W1/R6.'],
+['sec','Agent filesystem reach','An agent in a worktree can read ~/.ssh, ~/.aws and every other repo on the machine. A CLAUDE.md in a hostile repo is untrusted input the agent reads as guidance.','Never default to bypassed permissions; scope cwd; render agent output as untrusted. A2/A5.'],
+['sec','Renderer writes anywhere','saveGraph takes an arbitrary path from the renderer and mkdir -p’s under it — Zod validates shape, not authority.','Main-process allowlist of folders the user actually picked. F5/R6.'],
+];
+
+/* ── ideas ─────────────────────────────────────────────────────────────── */
+const IDEAS = [
+['Merge train — land a whole subtree in dependency order','adopt later','Turns the tree from a picture into an action; the one feature where the metaphor pays a cash dividend.','Auto-rebasing agent output is how you destroy work. Needs L3 and L4 to be solid first.'],
+['Conflict heat between siblings (intersect touched-file sets)','explore','The most decision-relevant thing you could put on a canvas, and nobody ships it.','File overlap is a weak proxy for semantic conflict; enough false alarms and the signal is ignored.'],
+['Worktree janitor — stale, merged, orphaned, disk-per-worktree','adopt now','Standalone value on day zero, works even for people orchestrating elsewhere, and installs alongside an incumbent instead of against it.','Utilities get opened monthly, not daily. Ship it as a facet of the map, not a separate mode.'],
+['Environment inheritance down the tree','adopt now','The concrete payoff of “a node is a worktree”. Makes ten worktrees genuinely cheap on macOS. This is W2.','A cloned node_modules drifted from its lockfile is a debugging nightmare users will blame on you.'],
+['Speculative fan-out — same prompt to N children, keep one','park','The one workflow a list genuinely cannot render.','Roughly seven times the tokens, and choosing between three 800-line diffs is harder than reading one.'],
+['First-class observer mode for other tools’ worktrees','adopt now','Distribution by complementarity — you get installed next to the incumbent. Mostly free once Stage 1 lands.','You risk becoming a dashboard for someone else’s product and never earning the primary relationship.'],
+['Cost and wall-clock per node','adopt later','Spend is the real 2026 pain and per-branch attribution exists nowhere. The data already arrives in the result event.','Vendor-specific and will break on their release cadence. Label it an estimate.'],
+['Live PR state polled onto the node','explore','Makes the canvas a live view of your open PRs — genuinely novel, and one poll loop.','Hard dependency on the gh CLI, network failure modes, and a loop to babysit.'],
+['Commit .branchwise/graph.json as a team artifact','open','Multiplayer with no backend: the plan of work becomes reviewable in a PR.','Merge conflicts in the annotation file, and some teams refuse tool metadata in their repo. See Decisions.'],
+['Position as “git worktrees, finally usable” rather than “AI agent orchestrator”','explore','A durable, non-hype category with no vendor risk; it survives the shakeout that already killed three competitors.','All the attention and money are in the agent framing.'],
+['Swimlanes by attention state, provenance edges crossing lanes','park','Keeps both signals: vertical position is actionable, edges preserve context. A node rising into “needs you” is a beautiful event needing no badge.','Nodes move when state changes, which destroys the spatial memory that motivated a canvas at all. And dagre does not do constrained-rank layout.'],
+['Multi-select → land all clean branches','park','The natural endgame of parallel agents.','Batch landing is batch risk; one conflict mid-batch leaves the repo in a state nobody designed for.'],
+['Ghost child previewed on + hover, before the click','reject','Would extend the best interaction in the app — you would see the map settle before committing.','Hover-triggered layout shifts twitch as the cursor crosses the canvas. The click-to-draft version already gets the value.'],
+['A “diff so far” strip inside the Agent tab','adopt later','Answers the real 80% question — is this going somewhere sane — without a mode change.','Two diff surfaces of different fidelity invites trusting the wrong one.'],
+['Real DAG matching git history instead of a provenance tree','reject','Honest.','A solved and unloved problem. Worktrees form a small tree, not an interesting DAG; it would import every hard layout problem for no product value.'],
+['Kanban by status instead of a tree','reject','Column position answers “what next” with zero decoding.','Provenance vanishes, and cards thrash between columns as agents flip between running and blocked.'],
+];
+
+/* ── measured ──────────────────────────────────────────────────────────── */
+const MEAS = [
+['git','git worktree list --porcelain, 66 worktrees','21 ms','Listing is free. Never the bottleneck.'],
+['git','60 × git reflog show (subprocess)','758 ms','~12 ms each, almost all process-spawn overhead.'],
+['git','60 × read .git/logs/refs/heads/<name> directly','95 ms','8× faster for the identical artifact. Use this.'],
+['git','git status --porcelain=v2, clean small repo','12 ms','200 ms – 2 s on a large dirty monorepo. On demand only.'],
+['git','fs events under .git for 2 worktree adds + 1 commit','62 events','~30% are .lock churn. Filter before the debounce.'],
+['git','git reflog expire --expire=now --all','empty output, exit 0','The log file remains as a zero-byte file. Silent, total provenance loss.'],
+['layout','dagre layoutTree, 100 nodes','15.6 ms','Fine. Runs synchronously on the render path.'],
+['layout','dagre layoutTree, 250 / 500 / 1000 nodes','101 / 341 / 1695 ms','250 is a dropped frame, 500 is a visible freeze. Roughly O(n^1.8).'],
+['fs','cp -Rc of a 200 MB tree on APFS','4 ms, ~0 bytes','Copy-on-write clone. O(file count), O(1) in file size.'],
+['fs','cp -R of the same tree','191 ms, 200 MB','The baseline you are avoiding.'],
+['fs','fs.cpSync with COPYFILE_FICLONE on macOS','173 ms, full disk cost','A silent no-op — libuv has no Apple clone path. FICLONE_FORCE throws ENOSYS.'],
+['fs','fs.cpSync default on a symlinked tree','symlinks rewritten to absolute paths into the source','verbatimSymlinks:true is mandatory. cp -R, ditto and pax do the right thing by default.'],
+['fs','cp -c on a non-APFS destination','succeeds, full copy','Silent fallback. Verify same-volume or measure a df delta; du and stat cannot see sharing.'],
+['agent','Claude Code CLI resume across process death','works','Sessions persist as JSONL under ~/.claude/projects/. Verified from a separate process after exit.'],
+['agent','SIGTERM to the CLI mid-turn','aborts turn, kills the Bash tree, exit 143','Clean cancellation primitive. Kill the process group, not the pid.'],
+['agent','CLI --help vs published docs','disagreed in three places','Documented flags absent from help but functional; permission-mode enum differs. Feature-detect from the init event.'],
+['agent','ACP protocol status','v1 stable and additive-only; v2 is a published draft','v2 removes fs/*, terminal/* and session/load. Build v1 if you build it at all.'],
+['agent','Codex CLI headless surface','codex exec --json, JSONL','Thread/turn/item events with usage per turn; a JSON-RPC app-server exists for richer embedding. Flags churn ~weekly — pin the version.'],
+['deps','node-pty native module status','Node-API, prebuilds shipped','electron-rebuild is no longer required. But its single-tarball layout breaks @electron/universal, and it ships a spawn-helper executable that must be unpacked from asar and signed.'],
+['deps','xterm.js current major','@xterm/xterm 6.x','The canvas renderer was removed in 6.0 — DOM or WebGL only, and WebGL context loss has no built-in fallback. The unscoped xterm package is deprecated.'],
+['css','--bw-accent vs --bw-running','both #2f6bff','Selection and activity are literally the same colour today.'],
+];
+
+/* ── landscape ─────────────────────────────────────────────────────────── */
+const COMP = [
+['Conductor','macOS app; agents in isolated worktrees; sidebar + diff review. Funded, polished, the category leader.','Free, BYO subscription','Sidebar is flat — no stacking, no dependency, no merge ordering, and no support for worktrees it did not create.'],
+['Claude Code agent view','Vendor-shipped dashboard of parallel sessions.','Free with any plan','A list of sessions with no git model at all: no worktree lifecycle, no provenance, no cleanup.'],
+['Cursor','Agents window; parallel agents each in an auto-managed worktree.','IDE subscription','Hides worktrees as an implementation detail. No cross-branch structure, no janitorial view.'],
+['GitButler','Virtual branches — parallel agent work in one working directory, no worktrees. Funded.','Free client','The most credible strategic threat. But virtual branches cannot give N agents N real directories: dev servers, ports and build caches collide.'],
+['Sculptor','Parallel agents in Docker containers rather than worktrees, plus a sync-back pairing mode.','Free beta, open source','Heavier — needs Docker and a devcontainer. branchwise is zero-infrastructure.'],
+['Emdash','Open-source agentic dev environment, multi-agent worktrees, issue-tracker integration, SSH remote.','MIT','Also a flat list. The structure story is unoccupied.'],
+['Nimbalyst (ex-Crystal)','Kanban plus visual editors, diff review and an iOS companion.','MIT, paid Teams','Broad scope. branchwise can be the fast, sharp, single-purpose tool.'],
+['Vibe Kanban','Card → worktree → agent, many harnesses. Company folded; community-maintained.','Apache-2.0','Kanban encodes status, never dependency. Also a cautionary tale about this category’s economics.'],
+['Claude Squad','tmux TUI; detached sessions that survive closing the pane.','AGPL-3.0','Sets the bar for session durability — match it before competing on anything else.'],
+['Warp','Agent management across local and cloud, with notifications when an agent needs input.','Freemium','Best-in-class attention model. No git structure; it is a terminal that manages agents.'],
+['Worktree GUIs (Tower, WorktreeWise, …)','Add and remove worktrees.','Mixed','Mature git clients that do not know an agent exists and never show provenance.'],
+];
+
+/* ══════════════════════════════════════════════════════════════════════════
+   RENDER
+   ══════════════════════════════════════════════════════════════════════════ */
+const $ = (s,r=document)=>r.querySelector(s);
+const el=(t,c,h)=>{const n=document.createElement(t);if(c)n.className=c;if(h!==undefined)n.innerHTML=h;return n};
+const esc=s=>String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+const byId = Object.fromEntries(WORK.map(w=>[w.id,w]));
+const STATUS_COLOR = {done:'var(--done)', next:'var(--next)', decide:'var(--decide)', planned:'var(--edge)'};
+const STATUS_LABEL = {done:'landed', next:'next', decide:'decide first', planned:'planned'};
+
+/* ── theme ─────────────────────────────────────────────────────────────── */
+(function(){
+  const saved = localStorage.getItem('bw-atlas-theme');
+  if(saved) document.documentElement.setAttribute('data-theme',saved);
+  $('#themeBtn').addEventListener('click',()=>{
+    const cur = document.documentElement.getAttribute('data-theme');
+    const dark = cur==='dark' || (cur!=='light' && matchMedia('(prefers-color-scheme:dark)').matches);
+    const next = dark?'light':'dark';
+    document.documentElement.setAttribute('data-theme',next);
+    localStorage.setItem('bw-atlas-theme',next);
+    drawMap();
+  });
+})();
+
+/* ── rank computation: longest path over hard deps ─────────────────────── */
+function computeRanks(){
+  const rank = {};
+  const visit = (id, seen)=>{
+    if(rank[id]!==undefined) return rank[id];
+    if(seen.has(id)) return 0;
+    seen.add(id);
+    const w = byId[id];
+    const deps = (w.deps||[]).filter(d=>byId[d]);
+    const r = deps.length ? Math.max(...deps.map(d=>visit(d,seen)))+1 : 0;
+    rank[id]=r; return r;
+  };
+  WORK.forEach(w=>visit(w.id,new Set()));
+  return rank;
+}
+
+/* ── map ───────────────────────────────────────────────────────────────── */
+let laneFilter = null, statusFilter = null;
+
+function drawMap(){
+  const svg = $('#mapSvg');
+  svg.innerHTML='';
+  const rank = computeRanks();
+  const maxRank = Math.max(...Object.values(rank));
+
+  const NW=134, NH=44, GAPX=44, GAPY=12, PADT=28, PADL=104, PADB=22;
+  const colW = NW+GAPX;
+
+  // slot nodes: per lane, per rank, stack vertically
+  const laneRows = {};
+  LANES.forEach(l=>laneRows[l.id]=[]);
+  WORK.forEach(w=>laneRows[w.lane].push(w));
+
+  const pos = {};
+  const laneTop = {};
+  let y = PADT;
+  LANES.forEach(l=>{
+    const items = laneRows[l.id];
+    const byRank = {};
+    items.forEach(w=>{ (byRank[rank[w.id]] ||= []).push(w); });
+    const depth = Math.max(1, ...Object.values(byRank).map(a=>a.length));
+    laneTop[l.id] = y;
+    Object.entries(byRank).forEach(([r,arr])=>{
+      arr.forEach((w,i)=>{
+        pos[w.id] = { x: PADL + Number(r)*colW, y: y + i*(NH+GAPY) };
+      });
+    });
+    y += depth*(NH+GAPY) + 20;
+  });
+
+  const W = PADL + (maxRank+1)*colW + 20;
+  const H = y + PADB;
+  svg.setAttribute('viewBox',`0 0 ${W} ${H}`);
+  svg.setAttribute('width',W);
+  svg.setAttribute('height',H);
+
+  const NS='http://www.w3.org/2000/svg';
+  const mk=(t,a)=>{const n=document.createElementNS(NS,t);for(const k in a)n.setAttribute(k,a[k]);return n};
+
+  // lane bands + labels
+  LANES.forEach((l,i)=>{
+    const items = laneRows[l.id];
+    const byRank = {};
+    items.forEach(w=>{ (byRank[rank[w.id]] ||= []).push(w); });
+    const depth = Math.max(1, ...Object.values(byRank).map(a=>a.length));
+    const h = depth*(NH+GAPY)-GAPY+16;
+    if(i%2===0) svg.appendChild(mk('rect',{class:'laneband',x:0,y:laneTop[l.id]-8,width:W,height:h,rx:8}));
+    const t = mk('text',{class:'lanelabel',x:14,y:laneTop[l.id]+13});
+    t.textContent = l.id+' · '+l.name;
+    svg.appendChild(t);
+    const t2 = mk('text',{class:'lanelabel',x:14,y:laneTop[l.id]+27});
+    t2.setAttribute('opacity','.65');
+    t2.textContent = l.sub;
+    svg.appendChild(t2);
+  });
+
+  // rank ruler
+  for(let r=0;r<=maxRank;r++){
+    const t = mk('ranklabel'==='x'?'text':'text',{class:'ranklabel',x:PADL+r*colW,y:14});
+    t.textContent = 'rank '+r;
+    svg.appendChild(t);
+  }
+
+  const visible = w => (!laneFilter || w.lane===laneFilter) && (!statusFilter || w.status===statusFilter);
+
+  // edges
+  WORK.forEach(w=>{
+    const draw=(from,soft)=>{
+      const a=pos[from], b=pos[w.id];
+      if(!a||!b) return;
+      const x1=a.x+NW, y1=a.y+NH/2, x2=b.x, y2=b.y+NH/2;
+      const mx=(x1+x2)/2;
+      const dim = !(visible(w) && visible(byId[from]));
+      const p = mk('path',{
+        class:'link'+(soft?' soft':''),
+        d:`M${x1},${y1} C${mx},${y1} ${mx},${y2} ${x2},${y2}`,
+        opacity: dim?0.12:(soft?0.7:1)
+      });
+      svg.appendChild(p);
+    };
+    (w.deps||[]).forEach(d=>draw(d,false));
+    (w.soft||[]).forEach(d=>draw(d,true));
+  });
+
+  // nodes
+  WORK.forEach(w=>{
+    const p=pos[w.id]; if(!p) return;
+    const g = mk('g',{class:'node'+(visible(w)?'':' dim'), tabindex:'0', role:'link',
+                      'aria-label':w.id+' '+w.title+' — '+STATUS_LABEL[w.status]});
+    g.appendChild(mk('rect',{class:'body',x:p.x,y:p.y,width:NW,height:NH,rx:8}));
+    g.appendChild(mk('rect',{class:'rail',x:p.x,y:p.y+8,width:3,height:NH-16,rx:1.5,fill:STATUS_COLOR[w.status]}));
+    const id = mk('text',{class:'id',x:p.x+12,y:p.y+16}); id.textContent = w.id+' · '+w.slug;
+    g.appendChild(id);
+    const words = w.title.split(' ');
+    let l1='',l2='';
+    for(const word of words){
+      if((l1+' '+word).trim().length<=22 && !l2) l1=(l1+' '+word).trim();
+      else l2=(l2+' '+word).trim();
+    }
+    if(l2.length>24) l2 = l2.slice(0,23)+'…';
+    const t1=mk('text',{class:'tl',x:p.x+12,y:p.y+30}); t1.textContent=l1; g.appendChild(t1);
+    if(l2){const t2=mk('text',{class:'tl2',x:p.x+12,y:p.y+41}); t2.textContent=l2; g.appendChild(t2);}
+    const go=()=>{
+      const card = document.getElementById('card-'+w.id);
+      if(!card) return;
+      card.open = true;
+      card.scrollIntoView({block:'center'});
+      document.querySelectorAll('.card.flash').forEach(c=>c.classList.remove('flash'));
+      card.classList.add('flash');
+      setTimeout(()=>card.classList.remove('flash'),1600);
+    };
+    g.addEventListener('click',go);
+    g.addEventListener('keydown',e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();go();}});
+    svg.appendChild(g);
+  });
+}
+
+/* map tools */
+(function(){
+  const tools = $('#mapTools');
+  const mkChip=(label,fn,test)=>{
+    const b=el('button','chip',label); b.type='button';
+    b.addEventListener('click',()=>{fn();refreshChips();drawMap();renderCards();});
+    b._test=test; tools.appendChild(b); return b;
+  };
+  const chips=[];
+  chips.push(mkChip('all', ()=>{laneFilter=null;statusFilter=null;}, ()=>!laneFilter&&!statusFilter));
+  LANES.forEach(l=>chips.push(mkChip(l.id+' '+l.name, ()=>{laneFilter = laneFilter===l.id?null:l.id;}, ()=>laneFilter===l.id)));
+  ['done','next','decide','planned'].forEach(s=>
+    chips.push(mkChip(STATUS_LABEL[s], ()=>{statusFilter = statusFilter===s?null:s;}, ()=>statusFilter===s)));
+  function refreshChips(){chips.forEach(c=>c.setAttribute('aria-pressed', c._test()?'true':'false'))}
+  window.refreshChips=refreshChips; refreshChips();
+})();
+
+/* ── gantt ─────────────────────────────────────────────────────────────── */
+(function(){
+  const WEEKS=10;
+  const t = el('table');
+  const thead = el('thead');
+  const hr = el('tr');
+  hr.appendChild(el('th','lane','track'));
+  for(let i=1;i<=WEEKS;i++) hr.appendChild(el('th',null,'w'+i));
+  thead.appendChild(hr); t.appendChild(thead);
+  const tb = el('tbody');
+  LANES.forEach(l=>{
+    const items = WORK.filter(w=>w.lane===l.id).sort((a,b)=>a.week[0]-b.week[0]);
+    // pack into rows so bars never overlap
+    const rows=[];
+    items.forEach(w=>{
+      let r = rows.find(row=>row.every(o=>o.week[1] < w.week[0] || o.week[0] > w.week[1]));
+      if(!r){r=[];rows.push(r)}
+      r.push(w);
+    });
+    rows.forEach((row,ri)=>{
+      const tr = el('tr');
+      const lc = el('td','lane');
+      lc.innerHTML = ri===0 ? `${l.id} · ${l.name}<em>${l.sub}</em>` : '';
+      tr.appendChild(lc);
+      const cell = el('td','cell');
+      cell.setAttribute('colspan',WEEKS);
+      const inner = el('div');
+      inner.style.cssText='position:absolute;inset:0';
+      for(let i=1;i<WEEKS;i++){
+        const g=el('div','wk'); g.style.cssText=`position:absolute;top:0;bottom:0;left:${i/WEEKS*100}%;border-left:1px dashed var(--hairline);opacity:.55`;
+        inner.appendChild(g);
+      }
+      row.forEach(w=>{
+        const b = el('div','bar '+(w.status==='done'?'done':w.status==='next'?'next':w.id==='R0'?'wait':'planned'));
+        const s=(w.week[0]-1)/WEEKS*100, e=(w.week[1])/WEEKS*100;
+        b.style.left=`calc(${s}% + 3px)`; b.style.width=`calc(${e-s}% - 6px)`;
+        b.textContent = w.id+' '+w.slug;
+        b.title = w.title;
+        b.style.cursor='pointer';
+        b.addEventListener('click',()=>{
+          const c=document.getElementById('card-'+w.id);
+          if(c){c.open=true;c.scrollIntoView({block:'center'});
+            document.querySelectorAll('.card.flash').forEach(x=>x.classList.remove('flash'));
+            c.classList.add('flash');setTimeout(()=>c.classList.remove('flash'),1600);}
+        });
+        inner.appendChild(b);
+      });
+      cell.appendChild(inner);
+      tr.appendChild(cell);
+      tb.appendChild(tr);
+    });
+  });
+  t.appendChild(tb);
+  $('#gantt').appendChild(t);
+})();
+
+/* ── cards ─────────────────────────────────────────────────────────────── */
+let query='';
+function renderCards(){
+  const host = $('#cards'); host.innerHTML='';
+  const q = query.trim().toLowerCase();
+  WORK.forEach(w=>{
+    const hay = (w.id+' '+w.slug+' '+w.title+' '+w.one+' '+w.why+' '+(w.accept||[]).join(' ')+' '+(w.watch||[]).join(' ')).toLowerCase();
+    const match = (!q || hay.includes(q))
+      && (!laneFilter || w.lane===laneFilter)
+      && (!statusFilter || w.status===statusFilter);
+    if(!match) return;
+
+    const d = el('details','card'); d.id='card-'+w.id;
+    const lane = LANES.find(l=>l.id===w.lane);
+    const depNames = (w.deps||[]).map(x=>byId[x]?byId[x].id+'·'+byId[x].slug:x);
+    const softNames = (w.soft||[]).map(x=>byId[x]?byId[x].id+'·'+byId[x].slug:x);
+
+    d.innerHTML = `
+      <summary>
+        <span class="sid">${esc(w.id)}</span>
+        <span class="stitle">
+          <h3>${esc(w.title)} <span class="slug">${esc(w.slug)}</span></h3>
+          <p>${esc(w.one)}</p>
+        </span>
+        <span class="badges">
+          <span class="b ${w.status==='done'?'done':w.status==='next'?'next':w.status==='decide'?'decide':''}">${STATUS_LABEL[w.status]}</span>
+          <span class="b lane">${esc(lane.id)} ${esc(lane.name)}</span>
+          <span class="b">${esc(w.size)}</span>
+          <span class="b">w${w.week[0]}${w.week[1]!==w.week[0]?'–'+w.week[1]:''}</span>
+        </span>
+      </summary>
+      <div class="body">
+        <h4>Why now</h4><p>${esc(w.why).replace(/\s+/g,' ')}</p>
+        <h4>Demo sentence</h4><p style="color:var(--ink)">${esc(w.demo)}</p>
+        <h4>Done means</h4><ul>${(w.accept||[]).map(a=>`<li>${esc(a)}</li>`).join('')}</ul>
+        ${(w.watch||[]).length?`<h4>Watch out</h4><ul>${w.watch.map(a=>`<li>${esc(a)}</li>`).join('')}</ul>`:''}
+        <h4>Order</h4>
+        <p class="deps">${depNames.length?`<b>blocked by</b> ${esc(depNames.join(', '))}`:'<b>no hard blockers</b>'}${softNames.length?` &nbsp;·&nbsp; <b>better after</b> ${esc(softNames.join(', '))}`:''}</p>
+        <h4>Prompt seed</h4>
+        <div class="prompt"><button class="copy" type="button">copy</button>${esc(w.prompt)}</div>
+      </div>`;
+    d.querySelector('.copy').addEventListener('click',ev=>{
+      ev.stopPropagation();
+      navigator.clipboard.writeText(w.prompt).then(()=>{
+        ev.target.textContent='copied'; setTimeout(()=>ev.target.textContent='copy',1400);
+      }).catch(()=>{ev.target.textContent='select it'});
+    });
+    host.appendChild(d);
+  });
+  if(!host.children.length) host.appendChild(el('p',null,'<span style="color:var(--muted);font-family:var(--mono);font-size:12px">no increments match</span>'));
+}
+
+/* filters above the cards */
+(function(){
+  const f = $('#filters');
+  const input = el('input'); input.type='search'; input.placeholder='search increments…';
+  input.setAttribute('aria-label','Search increments');
+  input.addEventListener('input',e=>{query=e.target.value;renderCards()});
+  f.appendChild(input);
+  const mk=(label,fn,test)=>{
+    const b=el('button','chip',label); b.type='button';
+    b.addEventListener('click',()=>{fn();sync();drawMap();renderCards();window.refreshChips&&window.refreshChips()});
+    b._test=test; f.appendChild(b); return b;
+  };
+  const chips=[mk('all',()=>{laneFilter=null;statusFilter=null},()=>!laneFilter&&!statusFilter)];
+  LANES.forEach(l=>chips.push(mk(l.id,()=>{laneFilter=laneFilter===l.id?null:l.id},()=>laneFilter===l.id)));
+  ['next','decide','done','planned'].forEach(s=>chips.push(mk(STATUS_LABEL[s],()=>{statusFilter=statusFilter===s?null:s},()=>statusFilter===s)));
+  function sync(){chips.forEach(c=>c.setAttribute('aria-pressed',c._test()?'true':'false'))}
+  window._syncCardChips=sync; sync();
+  const counts = WORK.reduce((a,w)=>{a[w.status]=(a[w.status]||0)+1;return a},{});
+  f.appendChild(el('span',null,`<span style="font-family:var(--mono);font-size:11px;color:var(--muted);margin-left:6px">${WORK.length} increments · ${counts.done||0} landed · ${counts.next||0} next · ${counts.decide||0} need a decision</span>`));
+})();
+
+/* ── tables ────────────────────────────────────────────────────────────── */
+function table(sel, head, rows){
+  const t = $(sel);
+  t.innerHTML = `<thead><tr>${head.map(h=>`<th>${h}</th>`).join('')}</tr></thead>`
+    + `<tbody>${rows.map(r=>`<tr>${r.map(c=>`<td>${c}</td>`).join('')}</tr>`).join('')}</tbody>`;
+}
+
+table('#adr', ['Decision','Status','Why it was decided that way','Cost to change'],
+  ADR.map(a=>[esc(a.d), `<span class="tag ${a.s}">${a.s}</span>`, esc(a.why), esc(a.cost)]));
+
+table('#risktab', ['Risk','Sev','The signal that proves it real','What you do about it'],
+  RISKS.map(r=>[esc(r.r), `<span class="tag ${r.sev}">${r.sev==='hi'?'high':r.sev==='md'?'medium':'low'}</span>`, esc(r.sig), esc(r.act)]));
+
+table('#edgetab', ['Where','Case','What actually happens','Handling'],
+  EDGES.map(e=>[`<span class="tag lo">${e[0]}</span>`, esc(e[1]), esc(e[2]), esc(e[3])]));
+
+table('#ideatab', ['Idea','Verdict','The case for','The case against'],
+  IDEAS.map(i=>[esc(i[0]),
+    `<span class="tag ${i[1]==='adopt now'?'settled':i[1]==='reject'?'reverse':'open'}">${i[1]}</span>`,
+    esc(i[2]), esc(i[3])]));
+
+table('#meas', ['Area','What was measured','Result','What it means'],
+  MEAS.map(m=>[`<span class="tag lo">${m[0]}</span>`, `<span class="m">${esc(m[1])}</span>`, `<span class="m">${esc(m[2])}</span>`, esc(m[3])]));
+
+table('#comp', ['Tool','What it is','Price','Where branchwise could win'],
+  COMP.map(c=>[esc(c[0]), esc(c[1]), esc(c[2]), esc(c[3])]));
+
+/* ── go ────────────────────────────────────────────────────────────────── */
+drawMap();
+renderCards();
+addEventListener('resize',()=>{});
+</script>
+</body>
+</html>

@@ -1,5 +1,6 @@
-import { useCallback, useEffect } from "react";
+import { useCallback, useEffect, useState } from "react";
 import type { ProjectRef } from "@/actions/project";
+import { pruneWorktrees } from "@/actions/repo";
 import BranchCanvas from "@/components/canvas/branch-canvas";
 import NodePanel from "@/components/panel/node-panel";
 import { useRepoStore } from "@/stores/repo-store";
@@ -60,17 +61,49 @@ export default function ProjectWorkspace({ project }: { project: ProjectRef }) {
         />
       ) : null}
 
-      <div className="pointer-events-none absolute bottom-3 left-4 flex flex-col gap-1">
+      <div className="absolute bottom-3 left-4 flex flex-col items-start gap-1">
         {nodes.length === 1 ? (
-          <p className="font-mono text-[11px] text-bw-muted">
+          <p className="pointer-events-none font-mono text-[11px] text-bw-muted">
             One worktree so far. Branches created anywhere show up here.
           </p>
         ) : null}
-        <p className="font-mono text-[10.5px] text-bw-edge">
+        <PruneNotice
+          count={nodes.filter((node) => node.prunable).length}
+          folder={project.path}
+        />
+        <p className="pointer-events-none font-mono text-[10.5px] text-bw-edge">
           {state.repo?.root ?? project.path}
         </p>
       </div>
     </div>
+  );
+}
+
+/**
+ * Git keeps listing a worktree whose directory was deleted by hand until it is
+ * pruned, so the canvas offers the cleanup rather than hiding the discrepancy.
+ */
+function PruneNotice({ count, folder }: { count: number; folder: string }) {
+  const [busy, setBusy] = useState(false);
+
+  const handlePrune = useCallback(() => {
+    setBusy(true);
+    pruneWorktrees(folder).finally(() => setBusy(false));
+  }, [folder]);
+
+  if (count === 0) {
+    return null;
+  }
+
+  return (
+    <button
+      className="rounded-md border border-bw-hairline bg-bw-surface px-2 py-1 text-[11px] text-bw-pending transition-colors hover:border-bw-edge disabled:opacity-50"
+      disabled={busy}
+      onClick={handlePrune}
+      type="button"
+    >
+      {count} worktree{count === 1 ? "" : "s"} missing — prune
+    </button>
   );
 }
 

@@ -269,3 +269,30 @@ export function migrateAnnotations(
 
   return next;
 }
+
+/**
+ * Removes a branch's annotation and lifts its children onto its parent.
+ *
+ * Git does not cascade: the children are independent worktrees that outlive
+ * their parent branch. Re-pointing them keeps the canvas tree connected
+ * instead of dropping a whole subtree back onto the root.
+ */
+export function reparentAnnotations(
+  annotations: Record<string, BranchAnnotation>,
+  removedBranch: string
+): Record<string, BranchAnnotation> {
+  const grandparent = annotations[removedBranch]?.parent ?? null;
+  const next: Record<string, BranchAnnotation> = {};
+
+  for (const [branch, annotation] of Object.entries(annotations)) {
+    if (branch === removedBranch) {
+      continue;
+    }
+    next[branch] =
+      annotation.parent === removedBranch
+        ? { ...annotation, parent: grandparent }
+        : annotation;
+  }
+
+  return next;
+}

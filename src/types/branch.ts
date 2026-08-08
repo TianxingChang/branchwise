@@ -49,6 +49,13 @@ export const repoSnapshotSchema = z.object({
   worktrees: z.array(worktreeEntrySchema),
 });
 
+export const worktreeStatusSchema = z.object({
+  /** Number of uncommitted entries in the worktree. */
+  dirtyCount: z.number().int().min(0),
+  /** True when the branch is already contained in its parent. */
+  merged: z.boolean(),
+});
+
 export const branchAnnotationSchema = z.object({
   /**
    * Provenance parent as a *branch name*, not a node. The parent may have no
@@ -82,6 +89,7 @@ export type WorktreeEntry = z.infer<typeof worktreeEntrySchema>;
 export type RepoInfo = z.infer<typeof repoInfoSchema>;
 export type RepoSnapshot = z.infer<typeof repoSnapshotSchema>;
 export type BranchAnnotation = z.infer<typeof branchAnnotationSchema>;
+export type WorktreeStatus = z.infer<typeof worktreeStatusSchema>;
 export type PanelState = z.infer<typeof panelStateSchema>;
 export type GraphDoc = z.infer<typeof graphDocSchema>;
 

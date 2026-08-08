@@ -1,11 +1,18 @@
 import { create } from "zustand";
 import { loadGraph, saveGraph } from "@/actions/project";
-import { initRepo, resolveRepo, watchRepo } from "@/actions/repo";
+import {
+  createWorktree,
+  initRepo,
+  removeWorktree,
+  resolveRepo,
+  watchRepo,
+} from "@/actions/repo";
 import { MAX_PANEL_WIDTH, MIN_PANEL_WIDTH } from "@/lib/branch/constants";
 import { createSeedDoc } from "@/lib/branch/doc";
 import {
   diffSnapshots,
   migrateAnnotations,
+  reparentAnnotations,
   resolveNodeTree,
 } from "@/lib/git/resolve";
 import type {
@@ -35,8 +42,24 @@ export interface ProjectState {
   worktrees: WorktreeEntry[];
 }
 
+export type MutationResult = { ok: true } | { error: string; ok: false };
+
 interface RepoStoreState {
   close: (folder: string) => void;
+  createBranch: (
+    folder: string,
+    startPoint: string,
+    name: string
+  ) => Promise<MutationResult>;
+  deleteNode: (
+    folder: string,
+    input: {
+      branch: string | null;
+      deleteBranch: boolean;
+      force: boolean;
+      worktreePath: string;
+    }
+  ) => Promise<MutationResult>;
   initialize: (folder: string) => Promise<void>;
   open: (folder: string) => Promise<void>;
   projects: Record<string, ProjectState>;
@@ -202,6 +225,52 @@ export const useRepoStore = create<RepoStoreState>()((set, get) => {
     close: (folder) => {
       subscriptions.get(folder)?.abort();
       subscriptions.delete(folder);
+    },
+
+    createBranch: async (folder, startPoint, name) => {
+      const current = get().projects[folder];
+      if (!current?.repo) {
+        return { error: "The repository is not ready yet.", ok: false };
+      }
+
+      try {
+        const { worktreePath } = await createWorktree({
+          name,
+          path: folder,
+          startPoint,
+        });
+        // Select it straight away — the watcher will deliver the node itself.
+        mutateDoc(folder, (doc) => ({
+          ...doc,
+          selectedWorktree: worktreePath,
+        }));
+        return { ok: true };
+      } catch (error) {
+        return { error: messageFor(error), ok: false };
+      }
+    },
+
+    deleteNode: async (folder, input) => {
+      const current = get().projects[folder];
+      if (!(current?.repo && current.doc)) {
+        return { error: "The repository is not ready yet.", ok: false };
+      }
+
+      try {
+        await removeWorktree({ ...input, path: folder });
+      } catch (error) {
+        return { error: messageFor(error), ok: false };
+      }
+
+      const { branch } = input;
+      if (input.deleteBranch && branch) {
+        mutateDoc(folder, (doc) => ({
+          ...doc,
+          branches: reparentAnnotations(doc.branches, branch),
+        }));
+      }
+
+      return { ok: true };
     },
 
     initialize: async (folder) => {

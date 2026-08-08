@@ -1,7 +1,19 @@
-import { init, resolve, watch } from "./handlers";
+import {
+  create,
+  init,
+  prune,
+  remove,
+  resolve,
+  status,
+  watch,
+} from "./handlers";
 
 export const repo = {
+  create,
   init,
+  prune,
+  remove,
   resolve,
+  status,
   watch,
 };

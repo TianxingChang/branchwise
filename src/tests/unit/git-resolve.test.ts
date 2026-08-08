@@ -4,6 +4,7 @@ import {
   isEmptyDiff,
   migrateAnnotations,
   type ResolveInput,
+  reparentAnnotations,
   resolveNodeTree,
 } from "@/lib/git/resolve";
 import type { BranchAnnotation, WorktreeEntry } from "@/types/branch";
@@ -303,5 +304,52 @@ describe("migrateAnnotations", () => {
 
   test("is a no-op without renames", () => {
     expect(migrateAnnotations(annotations, [])).toBe(annotations);
+  });
+});
+
+describe("reparentAnnotations", () => {
+  const annotations: Record<string, BranchAnnotation> = {
+    "feat/a": { parent: "main", parentSource: "reflog" },
+    "feat/b": { parent: "feat/a", parentSource: "reflog" },
+    "feat/c": { parent: "feat/a", parentSource: "user" },
+    "feat/other": { parent: "main", parentSource: "reflog" },
+  };
+
+  test("lifts children onto the removed branch's parent", () => {
+    const next = reparentAnnotations(annotations, "feat/a");
+
+    expect(next["feat/b"].parent).toBe("main");
+    expect(next["feat/c"].parent).toBe("main");
+  });
+
+  test("keeps how each child's edge was decided", () => {
+    const next = reparentAnnotations(annotations, "feat/a");
+
+    expect(next["feat/c"].parentSource).toBe("user");
+  });
+
+  test("drops the removed branch itself", () => {
+    expect(
+      reparentAnnotations(annotations, "feat/a")["feat/a"]
+    ).toBeUndefined();
+  });
+
+  test("leaves unrelated branches alone", () => {
+    const next = reparentAnnotations(annotations, "feat/a");
+
+    expect(next["feat/other"]).toEqual(annotations["feat/other"]);
+  });
+
+  test("re-roots children when the removed branch had no parent", () => {
+    const next = reparentAnnotations(
+      { "feat/x": { parent: null, parentSource: "root" }, ...annotations },
+      "feat/x"
+    );
+
+    expect(next["feat/a"]).toEqual(annotations["feat/a"]);
+  });
+
+  test("is safe for a branch that was never annotated", () => {
+    expect(reparentAnnotations(annotations, "nope")).toEqual(annotations);
   });
 });
