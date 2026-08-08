@@ -70,23 +70,30 @@ function checkForUpdates() {
   });
 }
 
-async function setupORPC() {
-  const { rpcHandler } = await import("./ipc/handler");
-
-  ipcMain.on(IPC_CHANNELS.START_ORPC_SERVER, (event) => {
+function setupORPC() {
+  // Registered synchronously so the listener exists before any renderer can
+  // hand over its port. The router itself is imported lazily, once a port
+  // actually arrives — by then the window exists for handlers that need it.
+  ipcMain.on(IPC_CHANNELS.START_ORPC_SERVER, async (event) => {
     const [serverPort] = event.ports;
+    const { rpcHandler } = await import("./ipc/handler");
 
     serverPort.start();
     rpcHandler.upgrade(serverPort);
   });
 }
 
-app.whenReady().then(async () => {
+app.whenReady().then(() => {
   try {
+    // The RPC channel must be listening before the window exists. The renderer
+    // hands over its MessagePort the instant it loads, and a packaged build
+    // loads from disk fast enough to win that race — the port is then dropped
+    // and every IPC call hangs forever. Only reproducible outside dev.
+    setupORPC();
     createWindow();
-    await installExtensions();
     checkForUpdates();
-    await setupORPC();
+    // Not awaited: devtools are a convenience, not a startup dependency.
+    installExtensions();
   } catch (error) {
     console.error("Error during app initialization:", error);
   }
