@@ -3,6 +3,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { worktreeStatus } from "@/actions/repo";
 import { branchLabel } from "@/components/canvas/branch-node";
 import AgentTab from "@/components/panel/agent-tab";
+import FileTab from "@/components/panel/file-tab";
 import PlaceholderTab from "@/components/panel/placeholder-tab";
 import TerminalTab from "@/components/panel/terminal-tab";
 import { MAX_PANEL_WIDTH, MIN_PANEL_WIDTH } from "@/lib/branch/constants";
@@ -320,6 +321,12 @@ function PanelBody({
         projectFolder={projectFolder}
       />
     );
+  }
+
+  if (tab === "file") {
+    // Keyed by worktree so switching nodes starts at that worktree's root
+    // rather than carrying the previous one's open file across.
+    return <FileTab key={node.id} node={node} />;
   }
 
   if (tab === "terminal") {

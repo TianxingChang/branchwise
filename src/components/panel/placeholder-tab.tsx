@@ -1,4 +1,4 @@
-import { FileCode2, GitCompare, Telescope } from "lucide-react";
+import { GitCompare, Telescope } from "lucide-react";
 import type { PanelTab } from "@/types/branch";
 
 interface Placeholder {
@@ -7,19 +7,13 @@ interface Placeholder {
   title: string;
 }
 
-const PLACEHOLDERS: Record<
-  Exclude<PanelTab, "agent" | "terminal">,
-  Placeholder
-> = {
+type PlaceholderTabName = Exclude<PanelTab, "agent" | "file" | "terminal">;
+
+const PLACEHOLDERS: Record<PlaceholderTabName, Placeholder> = {
   diff: {
     body: "Every change the agent makes on {branch}, compared against the branch it grew from.",
     icon: GitCompare,
     title: "Diff",
-  },
-  file: {
-    body: "Browse the working tree for {branch} and open any file the agent touched.",
-    icon: FileCode2,
-    title: "File",
   },
   view: {
     body: "A live preview of whatever {branch} is building, refreshed as the agent works.",
@@ -33,7 +27,7 @@ export default function PlaceholderTab({
   tab,
 }: {
   branchName: string;
-  tab: Exclude<PanelTab, "agent" | "terminal">;
+  tab: Exclude<PanelTab, "agent" | "file" | "terminal">;
 }) {
   const placeholder = PLACEHOLDERS[tab];
   const Icon = placeholder.icon;

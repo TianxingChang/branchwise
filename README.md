@@ -7,9 +7,9 @@ of the repository's **worktrees** — one node per worktree. Branch off any node
 and a real worktree appears; create one from a terminal or an agent and the node
 shows up on its own, within a moment.
 
-The Terminal tab is a real shell in that worktree. The agent side is still
-mocked — the Agent tab replies from a canned pool — and View, Diff and File are
-placeholders. Everything to do with git is real.
+The Terminal tab is a real shell in that worktree and the File tab browses it.
+The agent side is still mocked — the Agent tab replies from a canned pool — and
+View and Diff are placeholders. Everything to do with git is real.
 
 ---
 
@@ -106,6 +106,12 @@ inside every worktree, so they are read on demand for the selected node only.
   grandparent — git does not cascade, and neither should the canvas.
 - **Prune**: a worktree whose directory was deleted by hand is shown as missing,
   with a one-click cleanup.
+- **Files**: browse the worktree — directories first, then files, sorted the
+  way a file browser reads. Folders load only when opened, so a repository with
+  a large `node_modules` costs nothing until you go looking. The filter narrows
+  files while leaving folders in place, so the branch you are reading does not
+  collapse as you type. Opening a file shows it read-only; binaries and
+  anything over 2 MB say so instead of flooding the panel.
 - **Terminal**: a real shell, started in that worktree's directory. It belongs
   to the worktree rather than to the view, so switching the panel to Diff and
   back does not kill a running dev server — the scrollback is replayed and the
@@ -141,6 +147,11 @@ src/
   lib/terminal/
     buffer.ts              Bounded scrollback, trimmed on line boundaries
     queue.ts               Ordered, coalescing event queue
+  ipc/files/
+    handlers.ts            Directory listing and file reading, boundary-checked
+  lib/files/
+    entries.ts             Sorting, filtering, sizes, line counts
+    path-safety.ts         Relative-path normalisation with escape rejection
   components/
     canvas/                React Flow canvas, branch node, delete dialog
     panel/                 Agent / View / Terminal / Diff / File
@@ -169,7 +180,7 @@ Three layers, and the middle one carries the weight:
 
 - Real agents: the Agent tab replies from a canned pool and moves task cards
   through `Queued → Running → Done` on timers
-- The View, Diff and File tabs
+- The View and Diff tabs
 - Dark mode — the app is pinned to its light surface
 
 ## Notes for whoever picks this up
@@ -198,6 +209,12 @@ Three layers, and the middle one carries the weight:
      own lifecycle scripts.
   3. It must be unpacked from the asar, since an executable cannot be run from
      inside an archive.
+- **A path from the renderer is untrusted input.** The File tab names files by
+  a path relative to the worktree, so `src/../../..` would otherwise read the
+  whole machine. Segment normalisation is not enough on its own: a symlink
+  *inside* the worktree passes every textual check, so the resolved target goes
+  through `realpath` and is re-checked against the root. `files.integration`
+  covers both routes.
 - **An app launched from `out/` can hide a packaging bug.** Node resolves
   modules by walking up the filesystem, so it finds the development
   `node_modules` and a missing dependency never surfaces.
