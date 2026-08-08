@@ -1,7 +1,7 @@
 import { existsSync } from "node:fs";
 import type { IPty } from "node-pty";
+import { EventQueue } from "@/lib/queue";
 import { appendToScrollback } from "@/lib/terminal/buffer";
-import { EventQueue } from "@/lib/terminal/queue";
 import type { TerminalEvent } from "@/types/terminal";
 
 const DEFAULT_COLUMNS = 80;

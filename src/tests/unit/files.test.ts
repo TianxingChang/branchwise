@@ -1,99 +1,99 @@
 import { describe, expect, test } from "vitest";
-import {
-  countLines,
-  formatBytes,
-  joinPath,
-  matchesFilter,
-  parentPath,
-  sortEntries,
-} from "@/lib/files/entries";
+import { countLines, formatBytes } from "@/lib/files/entries";
+import { isMarkdown, languageForFile, PLAIN_TEXT } from "@/lib/files/language";
 import {
   PathEscapeError,
   safeRelativePath,
   safeSegments,
 } from "@/lib/files/path-safety";
-import type { FileEntry } from "@/types/files";
+import {
+  isDirectoryTreePath,
+  shouldDescend,
+  toRelativePath,
+  toTreePath,
+} from "@/lib/files/scan-policy";
 
-function entry(name: string, kind: FileEntry["kind"]): FileEntry {
-  return { isSymlink: false, kind, name, path: name, size: 0 };
-}
-
-describe("sortEntries", () => {
-  test("puts directories before files", () => {
-    const sorted = sortEntries([
-      entry("readme.md", "file"),
-      entry("src", "directory"),
-    ]);
-
-    expect(sorted.map((item) => item.name)).toEqual(["src", "readme.md"]);
-  });
-
-  test("sorts case-insensitively, the way a file browser reads", () => {
-    const sorted = sortEntries([
-      entry("biome.jsonc", "file"),
-      entry("AGENTS.md", "file"),
-      entry("CLAUDE.md", "file"),
-      entry("bun.lock", "file"),
-    ]);
-
-    expect(sorted.map((item) => item.name)).toEqual([
-      "AGENTS.md",
-      "biome.jsonc",
-      "bun.lock",
-      "CLAUDE.md",
-    ]);
-  });
-
-  test("orders numbered names the way people count", () => {
-    const sorted = sortEntries([
-      entry("file10.ts", "file"),
-      entry("file2.ts", "file"),
-    ]);
-
-    expect(sorted.map((item) => item.name)).toEqual(["file2.ts", "file10.ts"]);
-  });
-
-  test("does not mutate its input", () => {
-    const input = [entry("b", "file"), entry("a", "file")];
-    sortEntries(input);
-
-    expect(input.map((item) => item.name)).toEqual(["b", "a"]);
-  });
-});
-
-describe("matchesFilter", () => {
-  test("keeps everything for an empty filter", () => {
-    expect(matchesFilter(entry("anything", "file"), "  ")).toBe(true);
-  });
-
-  test("matches anywhere in the name, ignoring case", () => {
-    expect(matchesFilter(entry("BranchCanvas.tsx", "file"), "canvas")).toBe(
-      true
-    );
-  });
-
-  test("rejects a name that does not contain the needle", () => {
-    expect(matchesFilter(entry("readme.md", "file"), "canvas")).toBe(false);
-  });
-});
-
-describe("path helpers", () => {
-  test("joins onto the root without a leading slash", () => {
-    expect(joinPath("", "src")).toBe("src");
-    expect(joinPath("src", "lib")).toBe("src/lib");
-  });
-
-  test("walks back up one level", () => {
-    expect(parentPath("src/lib/git")).toBe("src/lib");
-    expect(parentPath("src")).toBe("");
-    expect(parentPath("")).toBe("");
-  });
-
+describe("formatBytes", () => {
   test("formats sizes at a glance", () => {
     expect(formatBytes(0)).toBe("0 B");
     expect(formatBytes(512)).toBe("512 B");
     expect(formatBytes(2048)).toBe("2 KB");
     expect(formatBytes(1_572_864)).toBe("1.5 MB");
+  });
+});
+
+describe("countLines", () => {
+  test("counts an empty file as no lines", () => {
+    expect(countLines("")).toBe(0);
+  });
+
+  test("does not count a trailing newline as another line", () => {
+    expect(countLines("# demo\nsecond line\n")).toBe(2);
+  });
+
+  test("counts a last line with no trailing newline", () => {
+    expect(countLines("a\nb")).toBe(2);
+    expect(countLines("only")).toBe(1);
+  });
+
+  test("counts blank lines in the middle", () => {
+    expect(countLines("a\n\nb\n")).toBe(3);
+  });
+});
+
+describe("tree paths", () => {
+  test("marks directories with a trailing slash", () => {
+    // The marker is what keeps an empty directory visible: without it the
+    // path-first tree has nothing to infer the folder from.
+    expect(toTreePath("src", true)).toBe("src/");
+    expect(toTreePath("src/index.ts", false)).toBe("src/index.ts");
+  });
+
+  test("recognises a directory path", () => {
+    expect(isDirectoryTreePath("src/")).toBe(true);
+    expect(isDirectoryTreePath("src/index.ts")).toBe(false);
+  });
+
+  test("strips the marker to get back a real path", () => {
+    expect(toRelativePath("src/")).toBe("src");
+    expect(toRelativePath("src/index.ts")).toBe("src/index.ts");
+  });
+});
+
+describe("shouldDescend", () => {
+  test("walks ordinary directories", () => {
+    expect(shouldDescend("src")).toBe(true);
+    expect(shouldDescend("docs")).toBe(true);
+  });
+
+  test("stops at directories nobody browses through", () => {
+    expect(shouldDescend("node_modules")).toBe(false);
+    expect(shouldDescend(".git")).toBe(false);
+  });
+});
+
+describe("languageForFile", () => {
+  test("maps common extensions to a grammar", () => {
+    expect(languageForFile("src/index.ts")).toBe("typescript");
+    expect(languageForFile("App.tsx")).toBe("tsx");
+    expect(languageForFile("main.rs")).toBe("rust");
+    expect(languageForFile("style.css")).toBe("css");
+  });
+
+  test("recognises dotfiles by name, which have no extension", () => {
+    expect(languageForFile(".gitignore")).toBe("ini");
+    expect(languageForFile("Dockerfile")).toBe("docker");
+  });
+
+  test("falls back to plain text rather than guessing", () => {
+    expect(languageForFile("LICENSE")).toBe(PLAIN_TEXT);
+    expect(languageForFile("data.weird")).toBe(PLAIN_TEXT);
+  });
+
+  test("identifies markdown, which renders through tiptap instead", () => {
+    expect(isMarkdown("README.md")).toBe(true);
+    expect(isMarkdown("notes.mdx")).toBe(true);
+    expect(isMarkdown("index.ts")).toBe(false);
   });
 });
 
@@ -136,24 +136,5 @@ describe("safeSegments", () => {
 
   test("refuses an embedded NUL, which can truncate a path in C", () => {
     expect(() => safeSegments("safe\u0000/../../etc")).toThrow(PathEscapeError);
-  });
-});
-
-describe("countLines", () => {
-  test("counts an empty file as no lines", () => {
-    expect(countLines("")).toBe(0);
-  });
-
-  test("does not count a trailing newline as another line", () => {
-    expect(countLines("# demo\nsecond line\n")).toBe(2);
-  });
-
-  test("counts a last line with no trailing newline", () => {
-    expect(countLines("a\nb")).toBe(2);
-    expect(countLines("only")).toBe(1);
-  });
-
-  test("counts blank lines in the middle", () => {
-    expect(countLines("a\n\nb\n")).toBe(3);
   });
 });

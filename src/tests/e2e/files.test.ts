@@ -1,5 +1,5 @@
 import { execFile } from "node:child_process";
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, unlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
@@ -13,9 +13,6 @@ import {
 import { findLatestBuild, parseElectronApp } from "electron-playwright-helpers";
 
 const run = promisify(execFile);
-
-const ROOT_ENTRIES = /^(src|README\.md|\.gitignore|biome\.jsonc|logo\.bin)$/;
-const BINARY_NOTICE = /Binary file/;
 
 const GIT_ENV = [
   "-c",
@@ -42,26 +39,29 @@ test.beforeAll(async () => {
     cwd: repoPath,
   });
 
-  // A shape worth asserting on: nesting, a dotfile, mixed case, and a binary.
-  await mkdir(path.join(repoPath, "src", "lib"), { recursive: true });
-  await writeFile(path.join(repoPath, "README.md"), "# demo\nsecond line\n");
-  await writeFile(path.join(repoPath, ".gitignore"), "node_modules\n");
-  await writeFile(path.join(repoPath, "biome.jsonc"), "{}\n");
+  await mkdir(path.join(repoPath, "src"), { recursive: true });
+  await mkdir(path.join(repoPath, "node_modules", "left-pad"), {
+    recursive: true,
+  });
+  await writeFile(
+    path.join(repoPath, "README.md"),
+    "# Demo project\n\nA paragraph with `inline code` and a [link](https://example.com).\n\n- first bullet\n- second bullet\n"
+  );
   await writeFile(
     path.join(repoPath, "src", "index.ts"),
-    'export const answer = 42;\nconsole.log("hello from index");\n'
+    [
+      "export const answer = 42;",
+      "",
+      "function greet(name: string) {",
+      "  return name.toUpperCase();",
+      "}",
+      "",
+    ].join("\n")
   );
   await writeFile(
-    path.join(repoPath, "src", "lib", "deep.ts"),
-    "export const deep = true;\n"
+    path.join(repoPath, "node_modules", "left-pad", "index.js"),
+    "module.exports = 1;\n"
   );
-  await writeFile(
-    path.join(repoPath, "logo.bin"),
-    Buffer.from([0x89, 0x50, 0x00, 0x01, 0x02, 0x03])
-  );
-
-  // Something outside the worktree that must stay unreachable.
-  await writeFile(path.join(workspace, "outside-secret.txt"), "do not read me");
 
   const appInfo = parseElectronApp(findLatestBuild());
   app = await electron.launch({
@@ -103,66 +103,73 @@ test.afterAll(async () => {
   }
 });
 
-const tree = () => page.getByPlaceholder("Filter files…");
+/**
+ * The tree splits a name across elements to style the extension, so a text
+ * match would never line up. Its accessible name is the whole filename.
+ */
+const treeItem = (name: string) =>
+  page.getByRole("treeitem", { exact: true, name });
 
-test("lists the worktree with directories before files", async () => {
-  await expect(tree()).toBeVisible({ timeout: 20_000 });
-
-  const names = await page
-    .getByRole("button")
-    .filter({ hasText: ROOT_ENTRIES })
-    .allTextContents();
-
-  expect(names[0]).toBe("src");
-  expect(names).toContain("README.md");
-  expect(names).toContain(".gitignore");
+test("renders the worktree with @pierre/trees", async () => {
+  await expect(treeItem("README.md")).toBeVisible({ timeout: 30_000 });
+  await expect(treeItem("src")).toBeVisible();
 });
 
-test("expands a directory on demand", async () => {
-  await expect(page.getByRole("button", { name: "index.ts" })).toBeHidden();
+test("shows a heavy directory without listing its contents", async () => {
+  await expect(treeItem("node_modules")).toBeVisible();
+  await expect(treeItem("left-pad")).toBeHidden();
+});
 
-  await page.getByRole("button", { exact: true, name: "src" }).click();
+test("highlights code when a source file is opened", async () => {
+  await treeItem("index.ts").click();
 
-  await expect(page.getByRole("button", { name: "index.ts" })).toBeVisible({
-    timeout: 10_000,
+  await expect(page.locator(".branchwise-code")).toBeVisible({
+    timeout: 30_000,
   });
 
-  // Nested directories load only when they are opened in turn.
-  await expect(page.getByRole("button", { name: "deep.ts" })).toBeHidden();
-  await page.getByRole("button", { exact: true, name: "lib" }).click();
-  await expect(page.getByRole("button", { name: "deep.ts" })).toBeVisible({
-    timeout: 10_000,
-  });
+  // Shiki colours each token inline; plain text would be one bare run.
+  const coloured = page.locator(".branchwise-code span[style*='color']");
+  await expect(coloured.first()).toBeVisible({ timeout: 30_000 });
+  expect(await coloured.count()).toBeGreaterThan(3);
+  await expect(page.locator(".branchwise-code")).toContainText("greet");
 });
 
-test("filters files by name while keeping folders in place", async () => {
-  await tree().fill("index");
+test("renders markdown through tiptap rather than as source", async () => {
+  await treeItem("README.md").click();
 
-  await expect(page.getByRole("button", { name: "index.ts" })).toBeVisible();
-  await expect(page.getByRole("button", { name: "README.md" })).toBeHidden();
-  // Folders stay so the branch the match lives in does not collapse away.
-  await expect(
-    page.getByRole("button", { exact: true, name: "src" })
-  ).toBeVisible();
+  const markdown = page.locator(".branchwise-markdown");
+  await expect(markdown).toBeVisible({ timeout: 30_000 });
 
-  await page.getByRole("button", { name: "Clear filter" }).click();
-  await expect(page.getByRole("button", { name: "README.md" })).toBeVisible();
+  // Real nodes, not the raw characters: a heading element and list items.
+  await expect(markdown.locator("h1")).toHaveText("Demo project");
+  await expect(markdown.locator("li")).toHaveCount(2);
+  await expect(markdown.locator("code")).toHaveText("inline code");
+  await expect(markdown).not.toContainText("# Demo project");
 });
 
-test("opens a file and shows its contents", async () => {
-  await page.getByRole("button", { name: "README.md" }).click();
+test("follows an edit made outside the app", async () => {
+  await writeFile(
+    path.join(repoPath, "README.md"),
+    "# Edited outside\n\nchanged on disk\n"
+  );
 
-  await expect(page.getByText("second line")).toBeVisible({ timeout: 10_000 });
-  await expect(page.getByText("2 lines", { exact: false })).toBeVisible();
-
-  await page.getByRole("button", { name: "← Files" }).click();
-  await expect(tree()).toBeVisible();
+  await expect(page.locator(".branchwise-markdown h1")).toHaveText(
+    "Edited outside",
+    { timeout: 30_000 }
+  );
 });
 
-test("refuses to render a binary file as text", async () => {
-  await page.getByRole("button", { name: "logo.bin" }).click();
+test("picks up a file created outside the app", async () => {
+  await writeFile(
+    path.join(repoPath, "src", "added-later.ts"),
+    "export const later = true;\n"
+  );
 
-  await expect(page.getByText(BINARY_NOTICE)).toBeVisible({ timeout: 10_000 });
+  await expect(treeItem("added-later.ts")).toBeVisible({ timeout: 30_000 });
+});
 
-  await page.getByRole("button", { name: "← Files" }).click();
+test("drops a file deleted outside the app", async () => {
+  await unlink(path.join(repoPath, "src", "added-later.ts"));
+
+  await expect(treeItem("added-later.ts")).toBeHidden({ timeout: 30_000 });
 });

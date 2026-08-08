@@ -163,6 +163,92 @@
 }
 
 @layer components {
+  /* Shiki emits its own inline colours; only the frame is ours. */
+  .branchwise-code pre {
+    margin: 0;
+    overflow-x: auto;
+    background: transparent !important;
+  }
+
+  .branchwise-code code {
+    font-family: inherit;
+    font-size: inherit;
+  }
+
+  /* tiptap renders markdown into plain semantic HTML, styled to match. */
+  .branchwise-markdown {
+    font-size: 12.5px;
+    line-height: 1.65;
+    color: var(--bw-ink);
+  }
+
+  .branchwise-markdown > * + * {
+    margin-top: 0.7em;
+  }
+
+  .branchwise-markdown h1 {
+    font-size: 16px;
+    font-weight: 600;
+  }
+
+  .branchwise-markdown h2 {
+    font-size: 14.5px;
+    font-weight: 600;
+  }
+
+  .branchwise-markdown h3 {
+    font-size: 13px;
+    font-weight: 600;
+  }
+
+  .branchwise-markdown ul,
+  .branchwise-markdown ol {
+    padding-left: 1.2em;
+  }
+
+  .branchwise-markdown ul {
+    list-style: disc;
+  }
+
+  .branchwise-markdown ol {
+    list-style: decimal;
+  }
+
+  .branchwise-markdown code {
+    padding: 0.1em 0.3em;
+    font-family: var(--font-mono);
+    font-size: 11.5px;
+    background: var(--bw-subtle);
+    border-radius: 4px;
+  }
+
+  .branchwise-markdown pre {
+    padding: 0.7em 0.8em;
+    overflow-x: auto;
+    background: var(--bw-subtle);
+    border-radius: 8px;
+  }
+
+  .branchwise-markdown pre code {
+    padding: 0;
+    background: transparent;
+  }
+
+  .branchwise-markdown blockquote {
+    padding-left: 0.8em;
+    color: var(--bw-muted);
+    border-left: 2px solid var(--bw-edge);
+  }
+
+  .branchwise-markdown a {
+    color: var(--bw-accent);
+    text-decoration: underline;
+  }
+
+  .branchwise-markdown hr {
+    border-top: 1px solid var(--bw-hairline);
+  }
+
   /* React Flow's attribution stays (removing it needs a Pro licence) but is
      toned down to sit quietly against the canvas. */
   .branchwise-canvas .react-flow__attribution {

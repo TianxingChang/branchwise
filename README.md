@@ -106,12 +106,13 @@ inside every worktree, so they are read on demand for the selected node only.
   grandparent — git does not cascade, and neither should the canvas.
 - **Prune**: a worktree whose directory was deleted by hand is shown as missing,
   with a one-click cleanup.
-- **Files**: browse the worktree — directories first, then files, sorted the
-  way a file browser reads. Folders load only when opened, so a repository with
-  a large `node_modules` costs nothing until you go looking. The filter narrows
-  files while leaving folders in place, so the branch you are reading does not
-  collapse as you type. Opening a file shows it read-only; binaries and
-  anything over 2 MB say so instead of flooding the panel.
+- **Files**: a live file tree over the worktree, built on
+  [`@pierre/trees`](https://trees.software/). It tracks the disk — create,
+  edit or delete a file from a terminal or an agent and the tree and the open
+  file follow within a moment, without losing expansion or selection. Source
+  files are syntax highlighted with Shiki; markdown renders through tiptap
+  rather than showing its own syntax. Binaries and anything over 2 MB say so
+  instead of flooding the panel.
 - **Terminal**: a real shell, started in that worktree's directory. It belongs
   to the worktree rather than to the view, so switching the panel to Diff and
   back does not kill a running dev server — the scrollback is replayed and the
@@ -148,9 +149,13 @@ src/
     buffer.ts              Bounded scrollback, trimmed on line boundaries
     queue.ts               Ordered, coalescing event queue
   ipc/files/
-    handlers.ts            Directory listing and file reading, boundary-checked
+    scan.ts                Breadth-first walk producing one flat path list
+    watcher.ts             Recursive fs.watch → debounce → add/remove events
+    handlers.ts            tree / watch / read, boundary-checked
   lib/files/
-    entries.ts             Sorting, filtering, sizes, line counts
+    scan-policy.ts         Which directories to walk, and the directory marker
+    language.ts            Filename → Shiki grammar
+    shiki.ts               Lazily created highlighter, grammars on demand
     path-safety.ts         Relative-path normalisation with escape rejection
   components/
     canvas/                React Flow canvas, branch node, delete dialog
@@ -209,6 +214,15 @@ Three layers, and the middle one carries the weight:
      own lifecycle scripts.
   3. It must be unpacked from the asar, since an executable cannot be run from
      inside an archive.
+- **`@pierre/trees` is path-first.** It takes every path up front and has no
+  expand-on-demand hook, so the worktree is walked once into a flat list.
+  `node_modules` and `.git` are listed but never walked into — descending would
+  mean shipping six figures of paths nobody is looking for. Changes are applied
+  to the model one path at a time; `resetPaths` would throw away expansion and
+  selection on every save.
+- **Shiki runs on its JavaScript regex engine, not Oniguruma.** The default
+  engine fetches a WebAssembly binary, which is not something to rely on from
+  the `file://` origin a packaged renderer runs at.
 - **A path from the renderer is untrusted input.** The File tab names files by
   a path relative to the worktree, so `src/../../..` would otherwise read the
   whole machine. Segment normalisation is not enough on its own: a symlink

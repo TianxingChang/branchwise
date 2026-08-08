@@ -8,6 +8,7 @@ import {
 import { UpdateSourceType, updateElectronApp } from "update-electron-app";
 import { ipcContext } from "@/ipc/context";
 import { IPC_CHANNELS, inDevelopment } from "./constants";
+import { stopAllWatching } from "./ipc/files/watcher";
 import { killAll } from "./ipc/terminal/manager";
 import { getBasePath } from "./utils/path";
 
@@ -103,7 +104,10 @@ app.whenReady().then(() => {
 // Shells outlive the windows that show them, so they need an explicit stop.
 // Synchronous on purpose: Electron does not wait for an async quit handler, so
 // a dynamic import here could lose the race and leave shells behind.
-app.on("before-quit", killAll);
+app.on("before-quit", () => {
+  killAll();
+  stopAllWatching();
+});
 
 //osX only
 app.on("window-all-closed", () => {

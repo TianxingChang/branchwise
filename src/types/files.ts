@@ -1,19 +1,16 @@
 import { z } from "zod";
 
-export const fileEntrySchema = z.object({
-  /** True for a symlink, whatever it points at. */
-  isSymlink: z.boolean(),
-  kind: z.enum(["directory", "file"]),
-  name: z.string(),
-  /** Slash-separated, relative to the worktree root. */
-  path: z.string(),
-  /** Bytes; zero for directories. */
-  size: z.number().int().min(0),
-});
+/** What the watcher reports so the tree can follow the disk. */
+export const fileChangeSchema = z.discriminatedUnion("kind", [
+  z.object({ kind: z.literal("changed"), path: z.string() }),
+  z.object({ kind: z.literal("removed"), path: z.string() }),
+]);
 
-export const directoryListingSchema = z.object({
-  entries: z.array(fileEntrySchema),
-  path: z.string(),
+export const worktreeTreeSchema = z.object({
+  /** Flat, slash-separated; directories carry a trailing slash. */
+  paths: z.array(z.string()),
+  /** True when the walk hit its limit and stopped early. */
+  truncated: z.boolean(),
 });
 
 export const fileContentSchema = z.discriminatedUnion("kind", [
@@ -27,6 +24,6 @@ export const fileContentSchema = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("too-large"), size: z.number().int().min(0) }),
 ]);
 
-export type FileEntry = z.infer<typeof fileEntrySchema>;
-export type DirectoryListing = z.infer<typeof directoryListingSchema>;
 export type FileContent = z.infer<typeof fileContentSchema>;
+export type FileChange = z.infer<typeof fileChangeSchema>;
+export type WorktreeTree = z.infer<typeof worktreeTreeSchema>;

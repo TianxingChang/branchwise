@@ -1,14 +1,16 @@
-import { open, readdir, readFile, realpath, stat } from "node:fs/promises";
+import { open, readFile, realpath, stat } from "node:fs/promises";
 import path from "node:path";
-import { ORPCError, os } from "@orpc/server";
+import { eventIterator, ORPCError, os } from "@orpc/server";
 import { z } from "zod";
-import { countLines, sortEntries } from "@/lib/files/entries";
+import { countLines } from "@/lib/files/entries";
 import { PathEscapeError, safeSegments } from "@/lib/files/path-safety";
 import {
-  directoryListingSchema,
-  type FileEntry,
+  fileChangeSchema,
   fileContentSchema,
+  worktreeTreeSchema,
 } from "@/types/files";
+import { scanWorktree } from "./scan";
+import { subscribeToChanges, unsubscribeFromChanges } from "./watcher";
 
 /** Anything larger is not something to read in a side panel. */
 const MAX_TEXT_BYTES = 2 * 1024 * 1024;
@@ -52,31 +54,6 @@ function asClientError(error: unknown): never {
   });
 }
 
-export const list = os
-  .input(locationInput.extend({ path: z.string() }))
-  .output(directoryListingSchema)
-  .handler(async ({ input }) => {
-    try {
-      const { absolute, relative } = await resolveInside(
-        input.worktreePath,
-        input.path
-      );
-
-      const found = await readdir(absolute, { withFileTypes: true });
-      const entries: FileEntry[] = found.map((item) => ({
-        isSymlink: item.isSymbolicLink(),
-        kind: item.isDirectory() ? "directory" : "file",
-        name: item.name,
-        path: relative.length === 0 ? item.name : `${relative}/${item.name}`,
-        size: 0,
-      }));
-
-      return { entries: sortEntries(entries), path: relative };
-    } catch (error) {
-      return asClientError(error);
-    }
-  });
-
 export const read = os
   .input(locationInput)
   .output(fileContentSchema)
@@ -114,5 +91,40 @@ export const read = os
       };
     } catch (error) {
       return asClientError(error);
+    }
+  });
+
+/**
+ * The whole worktree as a flat path list.
+ *
+ * `@pierre/trees` takes every path up front — it has no expand-on-demand hook —
+ * so this is one walk rather than a directory at a time.
+ */
+export const tree = os
+  .input(z.object({ worktreePath: z.string().min(1) }))
+  .output(worktreeTreeSchema)
+  .handler(async ({ input }) => {
+    try {
+      const root = await realpath(input.worktreePath);
+      return await scanWorktree(root);
+    } catch (error) {
+      return asClientError(error);
+    }
+  });
+
+/** Streams what changes on disk until the renderer stops listening. */
+export const watch = os
+  .input(z.object({ worktreePath: z.string().min(1) }))
+  .output(eventIterator(fileChangeSchema))
+  .handler(async function* ({ input, signal }) {
+    const root = await realpath(input.worktreePath).catch(asClientError);
+    const queue = subscribeToChanges(root);
+
+    try {
+      for await (const change of queue.iterate(signal)) {
+        yield change;
+      }
+    } finally {
+      unsubscribeFromChanges(root, queue);
     }
   });

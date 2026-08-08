@@ -1,6 +1,7 @@
-import { list, read } from "./handlers";
+import { read, tree, watch } from "./handlers";
 
 export const files = {
-  list,
   read,
+  tree,
+  watch,
 };

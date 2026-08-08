@@ -1,23 +1,29 @@
-import { ChevronDown, ChevronRight, Folder, Search, X } from "lucide-react";
-import { useCallback, useEffect, useMemo, useState } from "react";
-import { listDirectory, readTextFile } from "@/actions/files";
-import { iconForFile } from "@/components/panel/file-icon";
-import { formatBytes, matchesFilter } from "@/lib/files/entries";
+import { FileTree, useFileTree } from "@pierre/trees/react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { readTextFile, readWorktreeTree, watchFiles } from "@/actions/files";
+import CodeView from "@/components/panel/code-view";
+import MarkdownView from "@/components/panel/markdown-view";
+import { formatBytes } from "@/lib/files/entries";
+import { isMarkdown } from "@/lib/files/language";
+import { isDirectoryTreePath } from "@/lib/files/scan-policy";
 import type { CanvasNode } from "@/types/branch";
-import type { FileContent, FileEntry } from "@/types/files";
-import { cn } from "@/utils/tailwind";
+import type { FileContent } from "@/types/files";
 
-const ROW_INDENT = 12;
+const MIN_TREE_HEIGHT = 96;
+const MIN_VIEWER_HEIGHT = 120;
+const DEFAULT_TREE_HEIGHT = 220;
+
+/** Matches the panel's own surface so the shadow-rooted tree does not clash. */
+const TREE_CSS = `
+  :host { font-size: 12px; }
+  button[data-type='item'] { font-size: 12px; }
+`;
 
 interface FileTabProps {
   node: CanvasNode;
 }
 
 export default function FileTab({ node }: FileTabProps) {
-  const [openPath, setOpenPath] = useState<string | null>(null);
-
-  const closeFile = useCallback(() => setOpenPath(null), []);
-
   if (node.prunable) {
     return (
       <div className="flex h-full items-center justify-center px-8 text-center">
@@ -29,273 +35,35 @@ export default function FileTab({ node }: FileTabProps) {
     );
   }
 
-  if (openPath !== null) {
-    return (
-      <FileViewer
-        onBack={closeFile}
-        relativePath={openPath}
-        worktreePath={node.id}
-      />
-    );
-  }
-
-  return <FileTree onOpen={setOpenPath} worktreePath={node.id} />;
+  return <FileBrowser worktreePath={node.id} />;
 }
 
-function FileTree({
-  onOpen,
-  worktreePath,
-}: {
-  onOpen: (relativePath: string) => void;
-  worktreePath: string;
-}) {
-  const [filter, setFilter] = useState("");
-  const [expanded, setExpanded] = useState<Set<string>>(() => new Set());
-  const [listings, setListings] = useState<Record<string, FileEntry[]>>({});
-  const [error, setError] = useState<string | null>(null);
-
-  const load = useCallback(
-    async (directory: string) => {
-      try {
-        const listing = await listDirectory(worktreePath, directory);
-        setListings((current) => ({
-          ...current,
-          [directory]: listing.entries,
-        }));
-      } catch (loadError) {
-        setError(
-          loadError instanceof Error
-            ? loadError.message
-            : "That folder could not be read."
-        );
-      }
-    },
-    [worktreePath]
-  );
-
-  useEffect(() => {
-    setExpanded(new Set());
-    setListings({});
-    setError(null);
-    load("");
-  }, [load]);
-
-  const toggle = useCallback(
-    (directory: string) => {
-      setExpanded((current) => {
-        const next = new Set(current);
-        if (next.has(directory)) {
-          next.delete(directory);
-        } else {
-          next.add(directory);
-          if (!listings[directory]) {
-            load(directory);
-          }
-        }
-        return next;
-      });
-    },
-    [listings, load]
-  );
-
-  const handleFilter = useCallback(
-    (event: React.ChangeEvent<HTMLInputElement>) => {
-      setFilter(event.target.value);
-    },
-    []
-  );
-
-  const clearFilter = useCallback(() => setFilter(""), []);
-
-  // Flattened so the tree renders as one list: a nested render would need a
-  // recursive component for what is really just rows at different depths.
-  const rows = useMemo(
-    () => flatten({ depth: 0, directory: "", expanded, filter, listings }),
-    [expanded, filter, listings]
-  );
-
-  const root = listings[""];
-
-  return (
-    <div className="flex h-full flex-col">
-      <div className="p-3 pb-2">
-        <div className="flex items-center gap-2 rounded-lg border border-bw-hairline bg-bw-canvas/60 px-2.5 py-1.5 focus-within:border-bw-edge">
-          <Search className="shrink-0 text-bw-muted" size={12} />
-          <input
-            className="min-w-0 flex-1 bg-transparent text-[12px] text-bw-ink outline-none placeholder:text-bw-muted"
-            onChange={handleFilter}
-            placeholder="Filter files…"
-            value={filter}
-          />
-          {filter.length > 0 ? (
-            <button
-              aria-label="Clear filter"
-              className="shrink-0 text-bw-muted hover:text-bw-ink"
-              onClick={clearFilter}
-              type="button"
-            >
-              <X size={11} />
-            </button>
-          ) : null}
-        </div>
-      </div>
-
-      <div className="min-h-0 flex-1 overflow-y-auto pb-2">
-        {error ? (
-          <p className="px-4 py-3 text-[12px] text-bw-pending">{error}</p>
-        ) : null}
-
-        {root && rows.length === 0 ? (
-          <p className="px-4 py-3 text-[12px] text-bw-muted">
-            {filter.length > 0
-              ? `Nothing matches “${filter}”.`
-              : "This worktree is empty."}
-          </p>
-        ) : null}
-
-        {rows.map((row) => (
-          <FileRow
-            depth={row.depth}
-            entry={row.entry}
-            isExpanded={expanded.has(row.entry.path)}
-            key={row.entry.path}
-            onOpen={onOpen}
-            onToggle={toggle}
-          />
-        ))}
-      </div>
-    </div>
-  );
-}
-
-interface Row {
-  depth: number;
-  entry: FileEntry;
-}
-
-/**
- * Walks the loaded listings into ordered rows.
- *
- * A filter hides non-matching *files* but keeps folders, so an expanded branch
- * does not collapse out from under the person typing.
- */
-function flatten(options: {
-  depth: number;
-  directory: string;
-  expanded: Set<string>;
-  filter: string;
-  listings: Record<string, FileEntry[]>;
-}): Row[] {
-  const entries = options.listings[options.directory];
-  if (!entries) {
-    return [];
-  }
-
-  const rows: Row[] = [];
-
-  for (const entry of entries) {
-    const keep =
-      entry.kind === "directory" || matchesFilter(entry, options.filter);
-    if (!keep) {
-      continue;
-    }
-
-    rows.push({ depth: options.depth, entry });
-
-    if (entry.kind === "directory" && options.expanded.has(entry.path)) {
-      rows.push(
-        ...flatten({
-          depth: options.depth + 1,
-          directory: entry.path,
-          expanded: options.expanded,
-          filter: options.filter,
-          listings: options.listings,
-        })
-      );
-    }
-  }
-
-  return rows;
-}
-
-function FileRow({
-  depth,
-  entry,
-  isExpanded,
-  onOpen,
-  onToggle,
-}: {
-  depth: number;
-  entry: FileEntry;
-  isExpanded: boolean;
-  onOpen: (relativePath: string) => void;
-  onToggle: (directory: string) => void;
-}) {
-  const handleClick = useCallback(() => {
-    if (entry.kind === "directory") {
-      onToggle(entry.path);
-    } else {
-      onOpen(entry.path);
-    }
-  }, [entry.kind, entry.path, onOpen, onToggle]);
-
-  const Icon = entry.kind === "directory" ? Folder : iconForFile(entry.name);
-  const Chevron = isExpanded ? ChevronDown : ChevronRight;
-
-  return (
-    <button
-      className="flex w-full items-center gap-1.5 py-1 pr-3 text-left transition-colors hover:bg-bw-subtle"
-      onClick={handleClick}
-      style={{ paddingLeft: 12 + depth * ROW_INDENT }}
-      type="button"
-    >
-      {entry.kind === "directory" ? (
-        <Chevron className="shrink-0 text-bw-muted" size={12} />
-      ) : (
-        <span aria-hidden className="w-3 shrink-0" />
-      )}
-      <Icon className="shrink-0 text-bw-muted" size={13} strokeWidth={1.75} />
-      <span
-        className={cn(
-          "truncate text-[12px]",
-          entry.kind === "directory" ? "text-bw-ink" : "text-bw-muted"
-        )}
-      >
-        {entry.name}
-      </span>
-    </button>
-  );
-}
-
-function FileViewer({
-  onBack,
-  relativePath,
-  worktreePath,
-}: {
-  onBack: () => void;
-  relativePath: string;
-  worktreePath: string;
-}) {
-  const [content, setContent] = useState<FileContent | null>(null);
+function FileBrowser({ worktreePath }: { worktreePath: string }) {
+  const [paths, setPaths] = useState<string[] | null>(null);
+  const [truncated, setTruncated] = useState(false);
+  const [openPath, setOpenPath] = useState<string | null>(null);
+  const [treeHeight, setTreeHeight] = useState(DEFAULT_TREE_HEIGHT);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     let active = true;
-    setContent(null);
+    setPaths(null);
+    setOpenPath(null);
     setError(null);
 
-    readTextFile(worktreePath, relativePath)
+    readWorktreeTree(worktreePath)
       .then((result) => {
         if (active) {
-          setContent(result);
+          setPaths(result.paths);
+          setTruncated(result.truncated);
         }
       })
-      .catch((readError) => {
+      .catch((loadError) => {
         if (active) {
           setError(
-            readError instanceof Error
-              ? readError.message
-              : "That file could not be read."
+            loadError instanceof Error
+              ? loadError.message
+              : "This worktree could not be read."
           );
         }
       });
@@ -303,18 +71,279 @@ function FileViewer({
     return () => {
       active = false;
     };
-  }, [relativePath, worktreePath]);
+  }, [worktreePath]);
+
+  const handleSelectionChange = useCallback((selected: readonly string[]) => {
+    const [first] = selected;
+    if (first && !isDirectoryTreePath(first)) {
+      setOpenPath(first);
+    }
+  }, []);
 
   return (
     <div className="flex h-full flex-col">
-      <div className="flex items-center gap-2 border-bw-hairline border-b px-3 py-2">
-        <button
-          className="shrink-0 rounded-md px-1.5 py-0.5 text-[12px] text-bw-muted transition-colors hover:bg-bw-subtle hover:text-bw-ink"
-          onClick={onBack}
-          type="button"
-        >
-          ← Files
-        </button>
+      <TreePane
+        error={error}
+        height={treeHeight}
+        onSelect={handleSelectionChange}
+        paths={paths}
+        truncated={truncated}
+        worktreePath={worktreePath}
+      />
+
+      <ResizeHandle height={treeHeight} onResize={setTreeHeight} />
+
+      <div className="min-h-0 flex-1 overflow-auto">
+        {openPath === null ? (
+          <EmptyViewer />
+        ) : (
+          <OpenFile
+            key={openPath}
+            relativePath={openPath}
+            worktreePath={worktreePath}
+          />
+        )}
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Applies what the watcher reports to the tree model.
+ *
+ * One path at a time rather than a rebuild: `resetPaths` would discard the
+ * expansion and selection every time a file is saved.
+ */
+async function followDisk(options: {
+  known: Set<string>;
+  model: { add: (path: string) => void; remove: (path: string) => void };
+  signal: AbortSignal;
+  worktreePath: string;
+}): Promise<void> {
+  try {
+    const stream = await watchFiles(options.worktreePath, options.signal);
+
+    for await (const change of stream) {
+      if (options.signal.aborted) {
+        return;
+      }
+      if (change.kind === "removed") {
+        if (options.known.delete(change.path)) {
+          options.model.remove(change.path);
+        }
+      } else if (!options.known.has(change.path)) {
+        options.known.add(change.path);
+        options.model.add(change.path);
+      }
+    }
+  } catch {
+    // The tree keeps working; it just stops following the disk.
+  }
+}
+
+/**
+ * Hosts the tree model and keeps it level with the disk.
+ *
+ * The model is path-first, so a change is applied as `add`/`remove` on the one
+ * path that moved rather than by rebuilding the whole tree — rebuilding would
+ * throw away expansion and selection every time a file is saved.
+ */
+function TreePane({
+  error,
+  height,
+  onSelect,
+  paths,
+  truncated,
+  worktreePath,
+}: {
+  error: string | null;
+  height: number;
+  onSelect: (selected: readonly string[]) => void;
+  paths: string[] | null;
+  truncated: boolean;
+  worktreePath: string;
+}) {
+  const initialPaths = useMemo(() => paths ?? [], [paths]);
+  const { model } = useFileTree({
+    initialExpansion: 1,
+    onSelectionChange: onSelect,
+    paths: initialPaths,
+    search: true,
+    unsafeCSS: TREE_CSS,
+  });
+
+  const known = useRef<Set<string>>(new Set());
+
+  useEffect(() => {
+    if (!paths) {
+      return;
+    }
+    known.current = new Set(paths);
+    model.resetPaths(paths);
+  }, [model, paths]);
+
+  useEffect(() => {
+    if (!paths) {
+      return;
+    }
+
+    const controller = new AbortController();
+    followDisk({
+      known: known.current,
+      model,
+      signal: controller.signal,
+      worktreePath,
+    });
+
+    return () => controller.abort();
+  }, [model, paths, worktreePath]);
+
+  if (error) {
+    return (
+      <p className="px-4 py-3 text-[12px] text-bw-pending" style={{ height }}>
+        {error}
+      </p>
+    );
+  }
+
+  if (!paths) {
+    return (
+      <p className="px-4 py-3 text-[12px] text-bw-muted" style={{ height }}>
+        Reading the worktree…
+      </p>
+    );
+  }
+
+  return (
+    <div className="flex shrink-0 flex-col" style={{ height }}>
+      <FileTree model={model} style={{ flex: 1, minHeight: 0 }} />
+      {truncated ? (
+        <p className="px-3 pb-1 text-[10.5px] text-bw-pending">
+          Large worktree — the listing stops early.
+        </p>
+      ) : null}
+    </div>
+  );
+}
+
+function ResizeHandle({
+  height,
+  onResize,
+}: {
+  height: number;
+  onResize: (next: number) => void;
+}) {
+  const handlePointerDown = useCallback(
+    (event: React.PointerEvent<HTMLDivElement>) => {
+      event.preventDefault();
+      const originY = event.clientY;
+      const originHeight = height;
+
+      const move = (moveEvent: PointerEvent) => {
+        const container = (event.target as HTMLElement).parentElement;
+        const available = container?.clientHeight ?? Number.POSITIVE_INFINITY;
+        const next = Math.min(
+          Math.max(MIN_TREE_HEIGHT, originHeight + moveEvent.clientY - originY),
+          Math.max(MIN_TREE_HEIGHT, available - MIN_VIEWER_HEIGHT)
+        );
+        onResize(next);
+      };
+
+      const up = () => {
+        window.removeEventListener("pointermove", move);
+        window.removeEventListener("pointerup", up);
+        document.body.style.cursor = "";
+        document.body.style.userSelect = "";
+      };
+
+      document.body.style.cursor = "row-resize";
+      document.body.style.userSelect = "none";
+      window.addEventListener("pointermove", move);
+      window.addEventListener("pointerup", up);
+    },
+    [height, onResize]
+  );
+
+  return (
+    <div
+      className="h-1.5 shrink-0 cursor-row-resize border-bw-hairline border-y bg-bw-canvas/40 transition-colors hover:bg-bw-subtle"
+      onPointerDown={handlePointerDown}
+    />
+  );
+}
+
+function EmptyViewer() {
+  return (
+    <div className="flex h-full flex-col items-center justify-center gap-1.5 px-8 text-center">
+      <p className="text-[13px] text-bw-ink">Open a file</p>
+      <p className="text-[12.5px] text-bw-muted">
+        Pick one from the tree above.
+      </p>
+    </div>
+  );
+}
+
+/**
+ * Reads one file and keeps it current.
+ *
+ * The same watcher that drives the tree also tells this view when the open file
+ * is rewritten, so an agent editing on this branch shows up without a reload.
+ */
+function OpenFile({
+  relativePath,
+  worktreePath,
+}: {
+  relativePath: string;
+  worktreePath: string;
+}) {
+  const [content, setContent] = useState<FileContent | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  const load = useCallback(async () => {
+    try {
+      const result = await readTextFile(worktreePath, relativePath);
+      setContent(result);
+      setError(null);
+    } catch (readError) {
+      setError(
+        readError instanceof Error
+          ? readError.message
+          : "That file could not be read."
+      );
+    }
+  }, [relativePath, worktreePath]);
+
+  useEffect(() => {
+    load();
+  }, [load]);
+
+  useEffect(() => {
+    const controller = new AbortController();
+
+    (async () => {
+      try {
+        const stream = await watchFiles(worktreePath, controller.signal);
+        for await (const change of stream) {
+          if (controller.signal.aborted) {
+            break;
+          }
+          if (change.kind === "changed" && change.path === relativePath) {
+            load();
+          }
+        }
+      } catch {
+        // Stops following the file; the contents already shown stay valid.
+      }
+    })();
+
+    return () => controller.abort();
+  }, [load, relativePath, worktreePath]);
+
+  const name = relativePath.slice(relativePath.lastIndexOf("/") + 1);
+
+  return (
+    <div className="flex h-full flex-col">
+      <div className="flex items-center gap-2 border-bw-hairline border-b px-3 py-1.5">
         <span className="min-w-0 flex-1 truncate font-mono text-[11.5px] text-bw-ink">
           {relativePath}
         </span>
@@ -326,7 +355,12 @@ function FileViewer({
       </div>
 
       <div className="min-h-0 flex-1 overflow-auto">
-        <FileBody content={content} error={error} />
+        <FileBody
+          content={content}
+          error={error}
+          fileName={name}
+          relativePath={relativePath}
+        />
       </div>
     </div>
   );
@@ -335,9 +369,13 @@ function FileViewer({
 function FileBody({
   content,
   error,
+  fileName,
+  relativePath,
 }: {
   content: FileContent | null;
   error: string | null;
+  fileName: string;
+  relativePath: string;
 }) {
   if (error) {
     return <p className="px-4 py-3 text-[12px] text-bw-pending">{error}</p>;
@@ -364,9 +402,9 @@ function FileBody({
     );
   }
 
-  return (
-    <pre className="min-w-full px-4 py-3 font-mono text-[11.5px] text-bw-ink leading-relaxed">
-      {content.text}
-    </pre>
-  );
+  if (isMarkdown(relativePath)) {
+    return <MarkdownView text={content.text} />;
+  }
+
+  return <CodeView fileName={fileName} text={content.text} />;
 }
