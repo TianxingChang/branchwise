@@ -1,42 +1,51 @@
 import { describe, expect, test } from "vitest";
 import { layoutTree, NODE_HEIGHT, NODE_WIDTH } from "@/lib/branch/layout";
-import { addChild, createSeedDoc, ROOT_BRANCH_ID } from "@/lib/branch/tree";
-import type { BranchNode } from "@/types/branch";
+import type { CanvasNode } from "@/types/branch";
 
-function build(spec: [string, string][]): BranchNode[] {
-  const { nodes: seed } = createSeedDoc(0);
-  let nodes = seed;
-  for (const [id, parentId] of spec) {
-    const { nodes: next } = addChild(nodes, parentId, id, { id, now: 1 });
-    nodes = next;
-  }
-  return nodes;
+const ROOT = "root";
+
+function node(id: string, parentId: string | null): CanvasNode {
+  return {
+    branch: id,
+    detached: false,
+    head: `sha-${id}`,
+    id,
+    isRoot: parentId === null,
+    locked: false,
+    parentId,
+    parentSource: parentId === null ? "root" : "reflog",
+    prunable: false,
+  };
+}
+
+function build(spec: [string, string][]): CanvasNode[] {
+  return [node(ROOT, null), ...spec.map(([id, parent]) => node(id, parent))];
 }
 
 describe("layoutTree", () => {
   test("returns a position for every node", () => {
     const nodes = build([
-      ["a", ROOT_BRANCH_ID],
-      ["b", ROOT_BRANCH_ID],
+      ["a", ROOT],
+      ["b", ROOT],
     ]);
 
     const positions = layoutTree(nodes);
 
     expect(positions.size).toBe(3);
-    for (const node of nodes) {
-      expect(positions.get(node.id)).toBeDefined();
+    for (const item of nodes) {
+      expect(positions.get(item.id)).toBeDefined();
     }
   });
 
   test("places children strictly to the right of their parent", () => {
     const nodes = build([
-      ["a", ROOT_BRANCH_ID],
+      ["a", ROOT],
       ["b", "a"],
       ["c", "b"],
     ]);
 
     const positions = layoutTree(nodes);
-    const root = positions.get(ROOT_BRANCH_ID);
+    const root = positions.get(ROOT);
 
     expect(positions.get("a")?.x).toBeGreaterThan(root?.x as number);
     expect(positions.get("b")?.x).toBeGreaterThan(
@@ -48,25 +57,24 @@ describe("layoutTree", () => {
   });
 
   test("leaves a horizontal gap wider than a node between ranks", () => {
-    const nodes = build([["a", ROOT_BRANCH_ID]]);
-    const positions = layoutTree(nodes, { rankSep: 96 });
+    const positions = layoutTree(build([["a", ROOT]]), { rankSep: 96 });
 
     const gap =
-      (positions.get("a")?.x as number) -
-      (positions.get(ROOT_BRANCH_ID)?.x as number);
+      (positions.get("a")?.x as number) - (positions.get(ROOT)?.x as number);
 
     expect(gap).toBeGreaterThanOrEqual(NODE_WIDTH);
   });
 
   test("does not overlap siblings vertically", () => {
     const nodes = build([
-      ["a", ROOT_BRANCH_ID],
-      ["b", ROOT_BRANCH_ID],
-      ["c", ROOT_BRANCH_ID],
+      ["a", ROOT],
+      ["b", ROOT],
+      ["c", ROOT],
     ]);
+    const positions = layoutTree(nodes);
 
     const ys = ["a", "b", "c"]
-      .map((id) => layoutTree(nodes).get(id)?.y as number)
+      .map((id) => positions.get(id)?.y as number)
       .sort((left, right) => left - right);
 
     for (let index = 1; index < ys.length; index += 1) {
@@ -76,9 +84,9 @@ describe("layoutTree", () => {
 
   test("is deterministic for the same tree", () => {
     const nodes = build([
-      ["a", ROOT_BRANCH_ID],
+      ["a", ROOT],
       ["b", "a"],
-      ["c", ROOT_BRANCH_ID],
+      ["c", ROOT],
     ]);
 
     const first = layoutTree(nodes);
@@ -90,20 +98,10 @@ describe("layoutTree", () => {
   });
 
   test("ignores edges pointing at a parent that is gone", () => {
-    const orphan: BranchNode[] = [
-      ...createSeedDoc(0).nodes,
-      {
-        createdAt: 1,
-        id: "orphan",
-        name: "orphan",
-        parentId: "missing",
-        stats: { done: 0, pending: 0, running: 0 },
-        status: "idle",
-      },
-    ];
+    const nodes = [node(ROOT, null), node("orphan", "missing")];
 
-    expect(() => layoutTree(orphan)).not.toThrow();
-    expect(layoutTree(orphan).size).toBe(2);
+    expect(() => layoutTree(nodes)).not.toThrow();
+    expect(layoutTree(nodes).size).toBe(2);
   });
 
   test("handles an empty tree", () => {

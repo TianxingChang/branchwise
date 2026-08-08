@@ -1,31 +1,41 @@
 import { describe, expect, test } from "vitest";
-import { parseGraphDoc, serializeGraphDoc } from "@/lib/branch/doc";
+import { MAX_PANEL_WIDTH, MIN_PANEL_WIDTH } from "@/lib/branch/constants";
 import {
-  addChild,
   createSeedDoc,
-  MAX_PANEL_WIDTH,
-  MIN_PANEL_WIDTH,
-  ROOT_BRANCH_ID,
-} from "@/lib/branch/tree";
+  parseGraphDoc,
+  serializeGraphDoc,
+} from "@/lib/branch/doc";
 import type { GraphDoc } from "@/types/branch";
 
-function docWithChildren(): GraphDoc {
-  const seed = createSeedDoc(0);
-  const a = addChild(seed.nodes, ROOT_BRANCH_ID, "feature-a", { id: "a" });
-  const b = addChild(a.nodes, "a", "feature-a-1", { id: "b" });
-  return { ...seed, nodes: b.nodes };
+function populated(): GraphDoc {
+  return {
+    ...createSeedDoc(),
+    branches: {
+      "feat/a": { parent: "main", parentSource: "reflog" },
+      "feat/b": { parent: "feat/a", parentSource: "user" },
+    },
+    selectedWorktree: "/repo.worktrees/feat-a",
+  };
 }
 
 describe("graph doc round-trip", () => {
   test("survives serialize then parse unchanged", () => {
-    const doc = docWithChildren();
-    const parsed = parseGraphDoc(JSON.parse(serializeGraphDoc(doc)));
+    const doc = populated();
 
-    expect(parsed).toEqual(doc);
+    expect(parseGraphDoc(JSON.parse(serializeGraphDoc(doc)))).toEqual(doc);
   });
 
   test("serializes to newline-terminated json", () => {
-    expect(serializeGraphDoc(createSeedDoc(0)).endsWith("}\n")).toBe(true);
+    expect(serializeGraphDoc(createSeedDoc()).endsWith("}\n")).toBe(true);
+  });
+});
+
+describe("createSeedDoc", () => {
+  test("starts with no annotations and nothing selected", () => {
+    const doc = createSeedDoc();
+
+    expect(doc.branches).toEqual({});
+    expect(doc.selectedWorktree).toBeNull();
   });
 });
 
@@ -33,64 +43,53 @@ describe("parseGraphDoc", () => {
   test("rejects a payload that is not a doc", () => {
     expect(parseGraphDoc(null)).toBeNull();
     expect(parseGraphDoc({})).toBeNull();
-    expect(parseGraphDoc({ nodes: [] })).toBeNull();
   });
 
-  test("rejects a future schema version", () => {
-    const doc = { ...createSeedDoc(0), version: 2 };
-
-    expect(parseGraphDoc(doc)).toBeNull();
-  });
-
-  test("rejects a doc with no root", () => {
-    const doc = createSeedDoc(0);
-    const orphaned = {
-      ...doc,
-      nodes: [{ ...doc.nodes[0], parentId: "ghost" }],
-    };
-
-    expect(parseGraphDoc(orphaned)).toBeNull();
-  });
-
-  test("drops nodes that no longer reach the root", () => {
-    const doc = docWithChildren();
-    const withOrphan: GraphDoc = {
-      ...doc,
+  test("rejects a v1 document, whose node list git never knew about", () => {
+    const v1 = {
       nodes: [
-        ...doc.nodes,
         {
           createdAt: 0,
-          id: "ghost",
-          name: "ghost",
-          parentId: "deleted",
+          id: "main",
+          name: "main",
+          parentId: null,
           stats: { done: 0, pending: 0, running: 0 },
           status: "idle",
         },
       ],
+      panel: { collapsed: false, tab: "agent", width: 420 },
+      selectedNodeId: "main",
+      version: 1,
     };
 
-    const parsed = parseGraphDoc(withOrphan);
-
-    expect(parsed?.nodes.map((node) => node.id).sort()).toEqual([
-      "a",
-      "b",
-      ROOT_BRANCH_ID,
-    ]);
+    expect(parseGraphDoc(v1)).toBeNull();
   });
 
-  test("falls back to the first node when the selection is gone", () => {
-    const doc = { ...docWithChildren(), selectedNodeId: "vanished" };
+  test("rejects an unknown parentSource", () => {
+    const doc = {
+      ...createSeedDoc(),
+      branches: { "feat/a": { parent: "main", parentSource: "guessed" } },
+    };
 
-    expect(parseGraphDoc(doc)?.selectedNodeId).toBe(ROOT_BRANCH_ID);
+    expect(parseGraphDoc(doc)).toBeNull();
+  });
+
+  test("accepts a null parent, which means it hangs off the root", () => {
+    const doc = {
+      ...createSeedDoc(),
+      branches: { "feat/a": { parent: null, parentSource: "root" } },
+    };
+
+    expect(parseGraphDoc(doc)?.branches["feat/a"].parent).toBeNull();
   });
 
   test("clamps a panel width written outside the allowed range", () => {
     const narrow = parseGraphDoc({
-      ...createSeedDoc(0),
+      ...createSeedDoc(),
       panel: { collapsed: false, tab: "agent", width: 10 },
     });
     const wide = parseGraphDoc({
-      ...createSeedDoc(0),
+      ...createSeedDoc(),
       panel: { collapsed: false, tab: "agent", width: 5000 },
     });
 
@@ -98,24 +97,12 @@ describe("parseGraphDoc", () => {
     expect(wide?.panel.width).toBe(MAX_PANEL_WIDTH);
   });
 
-  test("drops a viewport left over from an older file", () => {
-    const doc = {
-      ...createSeedDoc(0),
-      viewport: { x: -120, y: 40, zoom: 0.75 },
-    };
-
-    const parsed = parseGraphDoc(doc);
-
-    expect(parsed).not.toBeNull();
-    expect(parsed).not.toHaveProperty("viewport");
-  });
-
   test("rejects an unknown panel tab", () => {
-    const doc = {
-      ...createSeedDoc(0),
-      panel: { collapsed: false, tab: "settings", width: 420 },
-    };
-
-    expect(parseGraphDoc(doc)).toBeNull();
+    expect(
+      parseGraphDoc({
+        ...createSeedDoc(),
+        panel: { collapsed: false, tab: "settings", width: 420 },
+      })
+    ).toBeNull();
   });
 });

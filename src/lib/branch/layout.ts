@@ -1,5 +1,5 @@
 import dagre from "@dagrejs/dagre";
-import type { BranchNode } from "@/types/branch";
+import type { CanvasNode } from "@/types/branch";
 
 export const NODE_WIDTH = 184;
 export const NODE_HEIGHT = 56;
@@ -28,7 +28,7 @@ export interface LayoutOptions {
  * node centers.
  */
 export function layoutTree(
-  nodes: BranchNode[],
+  nodes: CanvasNode[],
   options: LayoutOptions = {}
 ): LayoutResult {
   const {

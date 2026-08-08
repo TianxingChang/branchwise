@@ -1,10 +1,11 @@
 import { PanelRightOpen, X } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
+import { branchLabel } from "@/components/canvas/branch-node";
 import AgentTab from "@/components/panel/agent-tab";
 import PlaceholderTab from "@/components/panel/placeholder-tab";
-import { MAX_PANEL_WIDTH, MIN_PANEL_WIDTH } from "@/lib/branch/tree";
-import { useGraphStore } from "@/stores/graph-store";
-import type { BranchNode, PanelState, PanelTab } from "@/types/branch";
+import { MAX_PANEL_WIDTH, MIN_PANEL_WIDTH } from "@/lib/branch/constants";
+import { useRepoStore } from "@/stores/repo-store";
+import type { CanvasNode, PanelState, PanelTab } from "@/types/branch";
 import { PANEL_TABS } from "@/types/branch";
 import { cn } from "@/utils/tailwind";
 
@@ -17,29 +18,30 @@ const TAB_LABELS: Record<PanelTab, string> = {
 };
 
 interface NodePanelProps {
-  branch: BranchNode;
+  node: CanvasNode;
   panel: PanelState;
-  projectPath: string;
+  projectFolder: string;
 }
 
 export default function NodePanel({
-  branch,
+  node,
   panel,
-  projectPath,
+  projectFolder,
 }: NodePanelProps) {
-  const setPanelCollapsed = useGraphStore((state) => state.setPanelCollapsed);
-  const setPanelTab = useGraphStore((state) => state.setPanelTab);
-  const setPanelWidth = useGraphStore((state) => state.setPanelWidth);
+  const setPanelCollapsed = useRepoStore((state) => state.setPanelCollapsed);
+  const setPanelTab = useRepoStore((state) => state.setPanelTab);
+  const setPanelWidth = useRepoStore((state) => state.setPanelWidth);
 
   const [dragWidth, setDragWidth] = useState<number | null>(null);
   const width = dragWidth ?? panel.width;
+  const label = branchLabel(node);
 
   const handleResizeCommit = useCallback(
     (next: number) => {
       setDragWidth(null);
-      setPanelWidth(projectPath, next);
+      setPanelWidth(projectFolder, next);
     },
-    [projectPath, setPanelWidth]
+    [projectFolder, setPanelWidth]
   );
 
   const startResize = useResizeHandle({
@@ -49,12 +51,12 @@ export default function NodePanel({
   });
 
   const expand = useCallback(() => {
-    setPanelCollapsed(projectPath, false);
-  }, [projectPath, setPanelCollapsed]);
+    setPanelCollapsed(projectFolder, false);
+  }, [projectFolder, setPanelCollapsed]);
 
   const collapse = useCallback(() => {
-    setPanelCollapsed(projectPath, true);
-  }, [projectPath, setPanelCollapsed]);
+    setPanelCollapsed(projectFolder, true);
+  }, [projectFolder, setPanelCollapsed]);
 
   if (panel.collapsed) {
     return (
@@ -79,18 +81,23 @@ export default function NodePanel({
         onPointerDown={startResize}
       />
 
-      <header className="flex items-center gap-2 px-4 pt-3.5 pb-3">
-        <span className="min-w-0 flex-1 truncate font-mono text-[13px] text-bw-ink tracking-tight">
-          {branch.name}
+      <header className="flex flex-col gap-1 px-4 pt-3.5 pb-3">
+        <div className="flex items-center gap-2">
+          <span className="min-w-0 flex-1 truncate font-mono text-[13px] text-bw-ink tracking-tight">
+            {label}
+          </span>
+          <button
+            aria-label="Hide branch panel"
+            className="flex size-6 items-center justify-center rounded-md text-bw-muted transition-colors hover:bg-bw-subtle hover:text-bw-ink"
+            onClick={collapse}
+            type="button"
+          >
+            <X size={13} />
+          </button>
+        </div>
+        <span className="truncate font-mono text-[10.5px] text-bw-edge">
+          {node.id}
         </span>
-        <button
-          aria-label="Hide branch panel"
-          className="flex size-6 items-center justify-center rounded-md text-bw-muted transition-colors hover:bg-bw-subtle hover:text-bw-ink"
-          onClick={collapse}
-          type="button"
-        >
-          <X size={13} />
-        </button>
       </header>
 
       <nav className="flex items-center gap-1 px-3 pb-3">
@@ -99,7 +106,7 @@ export default function NodePanel({
             isActive={panel.tab === tab}
             key={tab}
             onSelect={setPanelTab}
-            projectPath={projectPath}
+            projectFolder={projectFolder}
             tab={tab}
           />
         ))}
@@ -107,9 +114,13 @@ export default function NodePanel({
 
       <div className="min-h-0 flex-1 border-bw-hairline border-t">
         {panel.tab === "agent" ? (
-          <AgentTab branch={branch} projectPath={projectPath} />
+          <AgentTab
+            branchLabel={label}
+            nodeId={node.id}
+            projectFolder={projectFolder}
+          />
         ) : (
-          <PlaceholderTab branchName={branch.name} tab={panel.tab} />
+          <PlaceholderTab branchName={label} tab={panel.tab} />
         )}
       </div>
     </aside>
@@ -119,17 +130,17 @@ export default function NodePanel({
 function TabButton({
   isActive,
   onSelect,
-  projectPath,
+  projectFolder,
   tab,
 }: {
   isActive: boolean;
-  onSelect: (projectPath: string, tab: PanelTab) => void;
-  projectPath: string;
+  onSelect: (projectFolder: string, tab: PanelTab) => void;
+  projectFolder: string;
   tab: PanelTab;
 }) {
   const handleClick = useCallback(() => {
-    onSelect(projectPath, tab);
-  }, [onSelect, projectPath, tab]);
+    onSelect(projectFolder, tab);
+  }, [onSelect, projectFolder, tab]);
 
   return (
     <button

@@ -1,6 +1,10 @@
-import type { BranchNode, GraphDoc } from "@/types/branch";
-import { graphDocSchema } from "@/types/branch";
-import { DEFAULT_PANEL_WIDTH, MAX_PANEL_WIDTH, MIN_PANEL_WIDTH } from "./tree";
+import {
+  DEFAULT_PANEL_WIDTH,
+  MAX_PANEL_WIDTH,
+  MIN_PANEL_WIDTH,
+} from "@/lib/branch/constants";
+import type { GraphDoc } from "@/types/branch";
+import { GRAPH_DOC_VERSION, graphDocSchema } from "@/types/branch";
 
 export const GRAPH_DIR = ".branchwise";
 export const GRAPH_FILE = "graph.json";
@@ -15,42 +19,19 @@ function clampPanelWidth(width: number): number {
   );
 }
 
-/**
- * A doc can be structurally valid but still describe an impossible tree — a
- * node pointing at a parent that was hand-deleted, or two roots. Rather than
- * rejecting the file (and losing the user's graph) we drop the unreachable
- * parts and keep what still hangs off the first root.
- */
-function reconcileTree(nodes: BranchNode[]): BranchNode[] {
-  const root = nodes.find((node) => node.parentId === null);
-  if (!root) {
-    return [];
-  }
-
-  const kept: BranchNode[] = [root];
-  const reachable = new Set([root.id]);
-  let grew = true;
-
-  while (grew) {
-    grew = false;
-    for (const node of nodes) {
-      if (reachable.has(node.id) || node.parentId === null) {
-        continue;
-      }
-      if (reachable.has(node.parentId)) {
-        reachable.add(node.id);
-        kept.push(node);
-        grew = true;
-      }
-    }
-  }
-
-  return kept;
+export function createSeedDoc(): GraphDoc {
+  return {
+    branches: {},
+    panel: { collapsed: false, tab: "agent", width: DEFAULT_PANEL_WIDTH },
+    selectedWorktree: null,
+    version: GRAPH_DOC_VERSION,
+  };
 }
 
 /**
- * Validates and repairs a doc read from disk.
- * Returns null when the payload is unusable, so callers can seed a fresh graph.
+ * Validates a doc read from disk. Returns null when the payload is unusable —
+ * including v1 documents, whose node list described branches that never
+ * existed in git and cannot be migrated into anything meaningful.
  */
 export function parseGraphDoc(raw: unknown): GraphDoc | null {
   const parsed = graphDocSchema.safeParse(raw);
@@ -58,25 +39,12 @@ export function parseGraphDoc(raw: unknown): GraphDoc | null {
     return null;
   }
 
-  const nodes = reconcileTree(parsed.data.nodes);
-  if (nodes.length === 0) {
-    return null;
-  }
-
-  const ids = new Set(nodes.map((node) => node.id));
-  const selectedNodeId =
-    parsed.data.selectedNodeId && ids.has(parsed.data.selectedNodeId)
-      ? parsed.data.selectedNodeId
-      : nodes[0].id;
-
   return {
     ...parsed.data,
-    nodes,
     panel: {
       ...parsed.data.panel,
       width: clampPanelWidth(parsed.data.panel.width),
     },
-    selectedNodeId,
   };
 }
 

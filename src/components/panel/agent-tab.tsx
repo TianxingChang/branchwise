@@ -5,7 +5,6 @@ import {
   conversationKey,
   useAgentStore,
 } from "@/stores/agent-store";
-import type { BranchNode } from "@/types/branch";
 import { cn } from "@/utils/tailwind";
 
 const STATUS_STYLE: Record<AgentTaskStatus, string> = {
@@ -21,12 +20,17 @@ const STATUS_LABEL: Record<AgentTaskStatus, string> = {
 };
 
 interface AgentTabProps {
-  branch: BranchNode;
-  projectPath: string;
+  branchLabel: string;
+  nodeId: string;
+  projectFolder: string;
 }
 
-export default function AgentTab({ branch, projectPath }: AgentTabProps) {
-  const key = conversationKey(projectPath, branch.id);
+export default function AgentTab({
+  branchLabel,
+  nodeId,
+  projectFolder,
+}: AgentTabProps) {
+  const key = conversationKey(projectFolder, nodeId);
   const items = useAgentStore((state) => state.conversations[key]?.items);
   const thinking = useAgentStore(
     (state) => state.conversations[key]?.thinking ?? false
@@ -36,20 +40,23 @@ export default function AgentTab({ branch, projectPath }: AgentTabProps) {
   const [draft, setDraft] = useState("");
   const scrollRef = useRef<HTMLDivElement>(null);
 
+  // items/thinking are triggers, not references: the effect re-runs to pin the
+  // view to the newest message. Removing them silently breaks auto-scroll.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: see above
   useEffect(() => {
     const node = scrollRef.current;
     if (node) {
       node.scrollTop = node.scrollHeight;
     }
-  }, []);
+  }, [items, thinking]);
 
   const submit = useCallback(() => {
     if (draft.trim().length === 0 || thinking) {
       return;
     }
-    send(key, branch.name, draft);
+    send(key, branchLabel, draft);
     setDraft("");
-  }, [branch.name, draft, key, send, thinking]);
+  }, [branchLabel, draft, key, send, thinking]);
 
   const handleChange = useCallback(
     (event: React.ChangeEvent<HTMLTextAreaElement>) => {
@@ -100,7 +107,7 @@ export default function AgentTab({ branch, projectPath }: AgentTabProps) {
             className="max-h-28 min-h-6 flex-1 resize-none bg-transparent text-[12.5px] text-bw-ink leading-relaxed outline-none placeholder:text-bw-muted"
             onChange={handleChange}
             onKeyDown={handleKeyDown}
-            placeholder={`Ask the agent to work on ${branch.name}…`}
+            placeholder={`Ask the agent to work on ${branchLabel}…`}
             rows={1}
             value={draft}
           />
