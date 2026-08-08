@@ -3,11 +3,36 @@ import { MakerDeb } from "@electron-forge/maker-deb";
 import { MakerRpm } from "@electron-forge/maker-rpm";
 import { MakerSquirrel } from "@electron-forge/maker-squirrel";
 import { MakerZIP } from "@electron-forge/maker-zip";
+import { AutoUnpackNativesPlugin } from "@electron-forge/plugin-auto-unpack-natives";
 import { FusesPlugin } from "@electron-forge/plugin-fuses";
 import { VitePlugin } from "@electron-forge/plugin-vite";
 import type { ForgeConfig } from "@electron-forge/shared-types";
+import { verifyPackagedNatives } from "./scripts/verify-packaged-natives";
+
+/**
+ * The Vite plugin packages only `.vite`, on the assumption that everything is
+ * bundled. Native modules cannot be — they have to ship as real files.
+ */
+const PACKAGED_NODE_MODULES = [
+  "/node_modules/node-addon-api",
+  "/node_modules/node-pty",
+];
+
+const shouldPackage = (file: string) =>
+  !file ||
+  file.startsWith("/.vite") ||
+  file === "/node_modules" ||
+  PACKAGED_NODE_MODULES.some(
+    (prefix) => file === prefix || file.startsWith(`${prefix}/`)
+  );
 
 const config: ForgeConfig = {
+  hooks: {
+    postPackage: (_forgeConfig, result) => {
+      verifyPackagedNatives(result);
+      return Promise.resolve();
+    },
+  },
   makers: [
     new MakerSquirrel({}),
     new MakerZIP({}, ["darwin"]),
@@ -15,9 +40,15 @@ const config: ForgeConfig = {
     new MakerDeb({}),
   ],
   packagerConfig: {
-    asar: true,
+    asar: {
+      // node-pty runs `spawn-helper` as a real executable, which cannot live
+      // inside the asar archive.
+      unpack: "**/node_modules/node-pty/**",
+    },
+    ignore: (file) => !shouldPackage(file),
   },
   plugins: [
+    new AutoUnpackNativesPlugin({}),
     new VitePlugin({
       build: [
         {

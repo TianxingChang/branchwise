@@ -8,6 +8,7 @@ import {
   resolveRepo,
   watchRepo,
 } from "@/actions/repo";
+import { killTerminal, killTerminalsUnder } from "@/actions/terminal";
 import { MAX_PANEL_WIDTH, MIN_PANEL_WIDTH } from "@/lib/branch/constants";
 import { createSeedDoc } from "@/lib/branch/doc";
 import {
@@ -237,6 +238,14 @@ export const useRepoStore = create<RepoStoreState>()((set, get) => {
     close: (folder) => {
       subscriptions.get(folder)?.abort();
       subscriptions.delete(folder);
+
+      // Shells are keyed by worktree path and outlive their view, so closing
+      // the project is what finally stops them.
+      const root = get().projects[folder]?.repo?.root;
+      if (root) {
+        killTerminalsUnder(root).catch(() => undefined);
+        killTerminalsUnder(`${root}.worktrees`).catch(() => undefined);
+      }
     },
 
     createBranch: async (folder, startPoint, name) => {
@@ -267,6 +276,9 @@ export const useRepoStore = create<RepoStoreState>()((set, get) => {
       if (!(current?.repo && current.doc)) {
         return { error: "The repository is not ready yet.", ok: false };
       }
+
+      // Release the shell first: it holds this directory as its cwd.
+      await killTerminal(input.worktreePath).catch(() => undefined);
 
       try {
         await removeWorktree({ ...input, path: folder });

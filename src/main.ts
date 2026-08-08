@@ -8,6 +8,7 @@ import {
 import { UpdateSourceType, updateElectronApp } from "update-electron-app";
 import { ipcContext } from "@/ipc/context";
 import { IPC_CHANNELS, inDevelopment } from "./constants";
+import { killAll } from "./ipc/terminal/manager";
 import { getBasePath } from "./utils/path";
 
 /** Set to "owner/repo" once branchwise ships GitHub releases. */
@@ -98,6 +99,11 @@ app.whenReady().then(() => {
     console.error("Error during app initialization:", error);
   }
 });
+
+// Shells outlive the windows that show them, so they need an explicit stop.
+// Synchronous on purpose: Electron does not wait for an async quit handler, so
+// a dynamic import here could lose the race and leave shells behind.
+app.on("before-quit", killAll);
 
 //osX only
 app.on("window-all-closed", () => {

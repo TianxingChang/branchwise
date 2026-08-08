@@ -7,9 +7,9 @@ of the repository's **worktrees** — one node per worktree. Branch off any node
 and a real worktree appears; create one from a terminal or an agent and the node
 shows up on its own, within a moment.
 
-The agent side is still mocked: the Agent tab replies from a canned pool, and
-the View, Terminal, Diff and File tabs are placeholders. Everything to do with
-git is real.
+The Terminal tab is a real shell in that worktree. The agent side is still
+mocked — the Agent tab replies from a canned pool — and View, Diff and File are
+placeholders. Everything to do with git is real.
 
 ---
 
@@ -106,6 +106,11 @@ inside every worktree, so they are read on demand for the selected node only.
   grandparent — git does not cascade, and neither should the canvas.
 - **Prune**: a worktree whose directory was deleted by hand is shown as missing,
   with a one-click cleanup.
+- **Terminal**: a real shell, started in that worktree's directory. It belongs
+  to the worktree rather than to the view, so switching the panel to Diff and
+  back does not kill a running dev server — the scrollback is replayed and the
+  same process is still there. It ends when the worktree is removed, the project
+  tab closes, or the app quits.
 
 External changes always re-frame the view, but never steal your selection or
 what the panel is showing.
@@ -130,6 +135,12 @@ src/
     tabs-store.ts          Tabs, persisted to localStorage
     repo-store.ts          Per-project snapshot, annotations, mutations
     agent-store.ts         Mock agent conversations (in memory)
+  ipc/terminal/
+    manager.ts             One shell per worktree: spawn, scrollback, restart
+    handlers.ts            attach (stream) / write / resize / restart / kill
+  lib/terminal/
+    buffer.ts              Bounded scrollback, trimmed on line boundaries
+    queue.ts               Ordered, coalescing event queue
   components/
     canvas/                React Flow canvas, branch node, delete dialog
     panel/                 Agent / View / Terminal / Diff / File
@@ -158,7 +169,7 @@ Three layers, and the middle one carries the weight:
 
 - Real agents: the Agent tab replies from a canned pool and moves task cards
   through `Queued → Running → Done` on timers
-- The View, Terminal, Diff and File tabs
+- The View, Diff and File tabs
 - Dark mode — the app is pinned to its light surface
 
 ## Notes for whoever picks this up
@@ -177,6 +188,21 @@ Three layers, and the middle one carries the weight:
   Biome 2.5.3 also panics on `memo()` under the ultracite preset.
 - **The main process is not hot-reloaded.** Changes under `src/ipc/` need a full
   `npm run start` restart, not a window reload.
+- **node-pty needs three things to survive packaging**, and each fails silently:
+  1. The Vite Forge plugin packages only `.vite`, on the assumption everything
+     is bundled. A native module cannot be, so `packagerConfig.ignore` has to
+     let `node_modules/node-pty` through — see `forge.config.ts`.
+  2. `spawn-helper` ships from npm without its executable bit, and node-pty
+     execs it. `scripts/fix-native-permissions.mjs` runs on `postinstall` to
+     restore it, rather than relying on npm being allowed to run a dependency's
+     own lifecycle scripts.
+  3. It must be unpacked from the asar, since an executable cannot be run from
+     inside an archive.
+- **An app launched from `out/` can hide a packaging bug.** Node resolves
+  modules by walking up the filesystem, so it finds the development
+  `node_modules` and a missing dependency never surfaces.
+  `src/tests/e2e/packaging.test.ts` copies the bundle to a temp directory first;
+  `verifyPackagedNatives` also fails the build outright.
 
 ---
 

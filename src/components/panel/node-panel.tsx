@@ -4,6 +4,7 @@ import { worktreeStatus } from "@/actions/repo";
 import { branchLabel } from "@/components/canvas/branch-node";
 import AgentTab from "@/components/panel/agent-tab";
 import PlaceholderTab from "@/components/panel/placeholder-tab";
+import TerminalTab from "@/components/panel/terminal-tab";
 import { MAX_PANEL_WIDTH, MIN_PANEL_WIDTH } from "@/lib/branch/constants";
 import { descendantNodeIds } from "@/lib/git/resolve";
 import { useRepoStore } from "@/stores/repo-store";
@@ -135,15 +136,12 @@ export default function NodePanel({
       </nav>
 
       <div className="min-h-0 flex-1 border-bw-hairline border-t">
-        {panel.tab === "agent" ? (
-          <AgentTab
-            branchLabel={label}
-            nodeId={node.id}
-            projectFolder={projectFolder}
-          />
-        ) : (
-          <PlaceholderTab branchName={label} tab={panel.tab} />
-        )}
+        <PanelBody
+          branchLabel={label}
+          node={node}
+          projectFolder={projectFolder}
+          tab={panel.tab}
+        />
       </div>
     </aside>
   );
@@ -301,6 +299,36 @@ function NodeStats({
       ) : null}
     </span>
   );
+}
+
+function PanelBody({
+  branchLabel: label,
+  node,
+  projectFolder,
+  tab,
+}: {
+  branchLabel: string;
+  node: CanvasNode;
+  projectFolder: string;
+  tab: PanelTab;
+}) {
+  if (tab === "agent") {
+    return (
+      <AgentTab
+        branchLabel={label}
+        nodeId={node.id}
+        projectFolder={projectFolder}
+      />
+    );
+  }
+
+  if (tab === "terminal") {
+    // Keyed by worktree so switching nodes gets its own shell rather than
+    // re-pointing this one.
+    return <TerminalTab key={node.id} node={node} />;
+  }
+
+  return <PlaceholderTab branchName={label} tab={tab} />;
 }
 
 function TabButton({
