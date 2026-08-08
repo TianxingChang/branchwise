@@ -170,15 +170,23 @@ function BranchCard({
         {/*
           The signature affordance: hovering pulls a dashed stub and a + out of
           the right edge, so branching reads as the connector physically
-          growing. Offset clear of the source handle on the card's edge —
-          overlapping it would let this button swallow the drag that re-parents
-          a node.
+          growing.
+
+          The stub is deliberately hit-testable: it bridges the gap between the
+          card and the button, so travelling to the + never leaves the hovered
+          element. Without that bridge the pointer crosses bare canvas, the
+          group loses :hover, and the button — whose own pointer-events are
+          gated on that same hover — can never win it back. Its left inset
+          clears the source handle sitting on the card's edge, which has to
+          stay grabbable for edge dragging.
         */}
-        <div className="pointer-events-none absolute top-1/2 -right-12 flex -translate-y-1/2 items-center pl-2 opacity-0 transition-opacity duration-150 group-hover/node:opacity-100">
+        <div className="pointer-events-none absolute top-1/2 -right-12 flex -translate-y-1/2 items-center pl-1 opacity-0 transition-opacity duration-150 group-hover/node:opacity-100">
           <span
             aria-hidden
-            className="h-px w-4 border-bw-edge border-t border-dashed"
-          />
+            className="pointer-events-auto flex h-6 w-5 items-center"
+          >
+            <span className="h-px w-full border-bw-edge border-t border-dashed" />
+          </span>
           <button
             aria-label={`Branch from ${branchLabel(node)}`}
             className="pointer-events-none flex size-6 items-center justify-center rounded-full border border-bw-hairline bg-bw-surface text-bw-muted shadow-[0_1px_3px_rgba(0,0,0,0.08)] transition-colors hover:border-bw-accent/40 hover:text-bw-accent group-hover/node:pointer-events-auto"

@@ -99,6 +99,66 @@ test.afterAll(async () => {
   }
 });
 
+/** Waits for the canvas to stop animating before trusting a coordinate. */
+async function settledBox(locator: ReturnType<typeof page.locator>) {
+  let previous: string | null = null;
+
+  for (let attempt = 0; attempt < 40; attempt += 1) {
+    // Sampling is sequential by nature: each read has to follow the last.
+    // biome-ignore lint/performance/noAwaitInLoops: see above
+    const box = await locator.boundingBox();
+    const serialised = JSON.stringify(box);
+    if (box && serialised === previous) {
+      return box;
+    }
+    previous = serialised;
+    await page.waitForTimeout(100);
+  }
+
+  throw new Error("element never stopped moving");
+}
+
+/**
+ * Walks the pointer from inside the node out to the +, one small step at a
+ * time.
+ *
+ * Playwright's click() teleports to the target, which is exactly why the
+ * earlier tests passed while the button was unusable with a real mouse: the
+ * hover chain only breaks when the pointer actually traverses the gap between
+ * the card and the button.
+ */
+test("the + stays reachable when the pointer travels to it", async () => {
+  const card = await settledBox(
+    page.locator(".react-flow__node", { hasText: "main" })
+  );
+
+  const startX = card.x + card.width - 12;
+  const midY = card.y + card.height / 2;
+  const plus = await settledBox(
+    page.getByRole("button", { name: "Branch from main" })
+  );
+  const endX = plus.x + plus.width / 2;
+
+  await page.mouse.move(startX, midY);
+  const steps = 24;
+  for (let step = 1; step <= steps; step += 1) {
+    // Ordered by definition: this is one continuous pointer path.
+    // biome-ignore lint/performance/noAwaitInLoops: see above
+    await page.mouse.move(startX + ((endX - startX) * step) / steps, midY);
+  }
+
+  // If the hover chain broke on the way, the + has faded out and stopped
+  // receiving pointer events — this click is what fails.
+  const plusButton = page.getByRole("button", { name: "Branch from main" });
+  await expect(plusButton).toBeVisible();
+  await plusButton.click({ timeout: 5000 });
+
+  await expect(page.getByPlaceholder("branch name")).toBeVisible({
+    timeout: 10_000,
+  });
+  await page.getByPlaceholder("branch name").press("Escape");
+});
+
 test("creates a real branch and worktree from the canvas", async () => {
   await startBranchFrom("main");
   await page.getByPlaceholder("branch name").fill("feat/from-canvas");
