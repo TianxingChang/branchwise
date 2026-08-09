@@ -8,6 +8,7 @@ import {
 import { UpdateSourceType, updateElectronApp } from "update-electron-app";
 import { ipcContext } from "@/ipc/context";
 import { IPC_CHANNELS, inDevelopment } from "./constants";
+import { reapStrays } from "./ipc/agent/pids";
 import { stopAllWatching } from "./ipc/files/watcher";
 import { killAll } from "./ipc/terminal/manager";
 import { getBasePath } from "./utils/path";
@@ -96,6 +97,9 @@ app.whenReady().then(() => {
     checkForUpdates();
     // Not awaited: devtools are a convenience, not a startup dependency.
     installExtensions();
+    // Not awaited: cleans up anything orphaned by a previous hard crash
+    // (atlas A3), but today's startup does not depend on it finishing.
+    reapStrays(path.join(app.getPath("userData"), "agent"));
   } catch (error) {
     console.error("Error during app initialization:", error);
   }
@@ -104,9 +108,20 @@ app.whenReady().then(() => {
 // Shells outlive the windows that show them, so they need an explicit stop.
 // Synchronous on purpose: Electron does not wait for an async quit handler, so
 // a dynamic import here could lose the race and leave shells behind.
-app.on("before-quit", () => {
+let agentsShutDown = false;
+app.on("before-quit", (event) => {
   killAll();
   stopAllWatching();
+  if (!agentsShutDown) {
+    // Agents need a bounded async window: interrupt, SIGTERM, then SIGKILL.
+    event.preventDefault();
+    import("./ipc/agent/manager").then(({ shutdownAgents }) =>
+      shutdownAgents(2000).finally(() => {
+        agentsShutDown = true;
+        app.quit();
+      })
+    );
+  }
 });
 
 //osX only
