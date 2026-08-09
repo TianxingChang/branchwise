@@ -3,21 +3,22 @@ import type { ProjectRef } from "@/actions/project";
 import { pruneWorktrees } from "@/actions/repo";
 import BranchCanvas from "@/components/canvas/branch-canvas";
 import NodePanel from "@/components/panel/node-panel";
-import { RAIL_WIDTH } from "@/lib/branch/constants";
+import { PANEL_GUTTER, RAIL_WIDTH } from "@/lib/branch/constants";
 import { cyclePosture } from "@/lib/branch/posture";
 import { useRepoStore } from "@/stores/repo-store";
 import type { PanelState } from "@/types/branch";
 
 /**
- * How much room the panel takes from the canvas: none while peeking, its own
- * width while docked, everything but a narrow strip while full.
+ * How much room the panel takes from the canvas: none while peeking, its
+ * width plus the window gutter while docked (the canvas ends at the floating
+ * card's left edge), everything but a narrow strip while full.
  */
 function canvasInset(panelOpen: boolean, panel: PanelState): number | string {
   if (!panelOpen || panel.posture === "peek") {
     return 0;
   }
   if (panel.posture === "split") {
-    return panel.width;
+    return panel.width + PANEL_GUTTER;
   }
   return `calc(100% - ${RAIL_WIDTH}px)`;
 }

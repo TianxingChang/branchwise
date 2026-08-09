@@ -11,6 +11,7 @@ import ViewTab from "@/components/panel/view-tab";
 import {
   MAX_PANEL_WIDTH,
   MIN_PANEL_WIDTH,
+  PANEL_GUTTER,
   RAIL_WIDTH,
 } from "@/lib/branch/constants";
 import { clampSplitWidth } from "@/lib/branch/posture";
@@ -18,7 +19,6 @@ import { descendantNodeIds } from "@/lib/git/resolve";
 import { useRepoStore } from "@/stores/repo-store";
 import type {
   CanvasNode,
-  PanelPosture,
   PanelState,
   PanelTab,
   WorktreeStatus,
@@ -36,15 +36,13 @@ const TAB_LABELS: Record<PanelTab, string> = {
 };
 
 /**
- * One chrome per posture, not a blend: peek is a transient overlay and looks
- * like one; split is a docked pane and drops the float styling — the old
- * panel paid for both at once (atlas L2 watch item).
+ * Every posture wears the same rounded floating-card chrome (user call,
+ * 2026-08-09, reversing the flush split/full experiment — atlas L2 watch
+ * trail). Postures differ in geometry only: peek reserves no canvas space,
+ * split makes the canvas yield its width, full leaves just the rail strip.
  */
-const POSTURE_CHROME: Record<PanelPosture, string> = {
-  full: "top-0 right-0 bottom-0 border-bw-hairline border-l bg-bw-surface",
-  peek: "top-3 right-3 bottom-3 rounded-2xl border border-bw-hairline bg-bw-surface/95 shadow-[0_6px_24px_rgba(0,0,0,0.07)] backdrop-blur-sm",
-  split: "top-0 right-0 bottom-0 border-bw-hairline border-l bg-bw-surface",
-};
+const PANEL_CHROME =
+  "top-3 right-3 bottom-3 rounded-2xl border border-bw-hairline bg-bw-surface/95 shadow-[0_6px_24px_rgba(0,0,0,0.07)] backdrop-blur-sm";
 
 const RESIZE_STEP = 16;
 
@@ -139,13 +137,10 @@ export default function NodePanel({
   return (
     // biome-ignore lint/a11y/noNoninteractiveElementInteractions: Escape-to-dismiss belongs on the panel itself; the close button duplicates it for pointer users
     <aside
-      className={cn(
-        "absolute flex flex-col overflow-hidden",
-        POSTURE_CHROME[panel.posture]
-      )}
+      className={cn("absolute flex flex-col overflow-hidden", PANEL_CHROME)}
       data-posture={panel.posture}
       onKeyDown={handleKeyDown}
-      style={full ? { left: RAIL_WIDTH } : { width }}
+      style={full ? { left: RAIL_WIDTH + PANEL_GUTTER } : { width }}
     >
       {full ? null : (
         // biome-ignore lint/a11y/useSemanticElements: the WAI-ARIA window-splitter pattern is role=separator on a focusable div; no semantic element resizes
@@ -410,7 +405,14 @@ function PanelBody({
   if (tab === "file") {
     // Keyed by worktree so switching nodes starts at that worktree's root
     // rather than carrying the previous one's open file across.
-    return <FileTab key={node.id} node={node} />;
+    return (
+      <FileTab
+        key={node.id}
+        node={node}
+        parentBranch={parentBranch}
+        projectFolder={projectFolder}
+      />
+    );
   }
 
   if (tab === "terminal") {

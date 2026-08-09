@@ -1,13 +1,18 @@
 import { FileTree, useFileTree } from "@pierre/trees/react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { readTextFile, readWorktreeTree, watchFiles } from "@/actions/files";
+import { worktreeChangedPaths } from "@/actions/repo";
 import CodeView from "@/components/panel/code-view";
 import MarkdownView from "@/components/panel/markdown-view";
 import { formatBytes } from "@/lib/files/entries";
 import { isMarkdown } from "@/lib/files/language";
 import { isDirectoryTreePath } from "@/lib/files/scan-policy";
 import type { CanvasNode } from "@/types/branch";
+import type { ChangedPath } from "@/types/diff";
 import type { FileContent } from "@/types/files";
+
+/** How long disk events may pile up before the badges re-read git. */
+const BADGE_REFRESH_MS = 400;
 
 /**
  * Narrow enough to give the file most of the panel, wide enough that the
@@ -37,6 +42,12 @@ const SEARCH_ICON =
  */
 const TREE_CSS = `
   :host {
+    --trees-git-added-color-override: var(--bw-done);
+    --trees-git-untracked-color-override: var(--bw-done);
+    --trees-git-renamed-color-override: var(--bw-done);
+    --trees-git-modified-color-override: var(--bw-pending);
+    --trees-git-deleted-color-override: var(--bw-removed);
+    --trees-git-ignored-color-override: var(--bw-edge);
     --trees-bg-override: transparent;
     --trees-padding-inline-override: 8px;
     --trees-font-size-override: 12px;
@@ -74,9 +85,15 @@ const TREE_CSS = `
 
 interface FileTabProps {
   node: CanvasNode;
+  parentBranch: string | null;
+  projectFolder: string;
 }
 
-export default function FileTab({ node }: FileTabProps) {
+export default function FileTab({
+  node,
+  parentBranch,
+  projectFolder,
+}: FileTabProps) {
   if (node.prunable) {
     return (
       <div className="flex h-full items-center justify-center px-8 text-center">
@@ -88,10 +105,84 @@ export default function FileTab({ node }: FileTabProps) {
     );
   }
 
-  return <FileBrowser worktreePath={node.id} />;
+  return (
+    <FileBrowser
+      head={node.head}
+      parentBranch={parentBranch}
+      projectFolder={projectFolder}
+      worktreePath={node.id}
+    />
+  );
 }
 
-function FileBrowser({ worktreePath }: { worktreePath: string }) {
+/**
+ * The same "which files changed" answer the Diff tab gives, worn by the tree
+ * as status colours. Disk events refresh it on a short debounce, so an agent
+ * saving a file badges it within a beat.
+ */
+function useChangedBadges({
+  head,
+  parentBranch,
+  projectFolder,
+  worktreePath,
+}: {
+  head: string;
+  parentBranch: string | null;
+  projectFolder: string;
+  worktreePath: string;
+}): { badges: ChangedPath[]; refresh: () => void } {
+  const [badges, setBadges] = useState<ChangedPath[]>([]);
+  const alive = useRef(true);
+  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const load = useCallback(() => {
+    worktreeChangedPaths({
+      parentBranch,
+      path: projectFolder,
+      worktreePath,
+    })
+      .then((entries) => {
+        if (alive.current) {
+          setBadges(entries);
+        }
+      })
+      .catch(() => undefined);
+  }, [parentBranch, projectFolder, worktreePath]);
+
+  const refresh = useCallback(() => {
+    if (timer.current) {
+      clearTimeout(timer.current);
+    }
+    timer.current = setTimeout(load, BADGE_REFRESH_MS);
+  }, [load]);
+
+  // head is a trigger: a commit changes which paths differ from the base.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: see above
+  useEffect(() => {
+    alive.current = true;
+    load();
+    return () => {
+      alive.current = false;
+      if (timer.current) {
+        clearTimeout(timer.current);
+      }
+    };
+  }, [head, load]);
+
+  return { badges, refresh };
+}
+
+function FileBrowser({
+  head,
+  parentBranch,
+  projectFolder,
+  worktreePath,
+}: {
+  head: string;
+  parentBranch: string | null;
+  projectFolder: string;
+  worktreePath: string;
+}) {
   const [paths, setPaths] = useState<string[] | null>(null);
   const [truncated, setTruncated] = useState(false);
   const [openPath, setOpenPath] = useState<string | null>(null);
@@ -155,10 +246,19 @@ function FileBrowser({ worktreePath }: { worktreePath: string }) {
     }
   }, []);
 
+  const { badges, refresh } = useChangedBadges({
+    head,
+    parentBranch,
+    projectFolder,
+    worktreePath,
+  });
+
   return (
     <div className="flex h-full" ref={splitRef}>
       <TreePane
+        badges={badges}
         error={error}
+        onDiskChange={refresh}
         onSelect={handleSelectionChange}
         paths={paths}
         truncated={truncated}
@@ -193,6 +293,7 @@ async function followDisk(options: {
   isReady: () => boolean;
   known: () => Set<string>;
   model: { add: (path: string) => void; remove: (path: string) => void };
+  onEvent: () => void;
   signal: AbortSignal;
   worktreePath: string;
 }): Promise<void> {
@@ -208,6 +309,9 @@ async function followDisk(options: {
         // this, and applying it now would only be undone by that scan.
         continue;
       }
+
+      // Edits do not add or remove tree nodes, but they do move badges.
+      options.onEvent();
 
       const known = options.known();
       if (change.kind === "removed") {
@@ -232,14 +336,18 @@ async function followDisk(options: {
  * throw away expansion and selection every time a file is saved.
  */
 function TreePane({
+  badges,
   error,
+  onDiskChange,
   onSelect,
   paths,
   truncated,
   width,
   worktreePath,
 }: {
+  badges: ChangedPath[];
   error: string | null;
+  onDiskChange: () => void;
   onSelect: (selected: readonly string[]) => void;
   paths: string[] | null;
   truncated: boolean;
@@ -267,6 +375,15 @@ function TreePane({
     model.resetPaths(paths);
   }, [model, paths]);
 
+  useEffect(() => {
+    model.setGitStatus(badges);
+  }, [badges, model]);
+
+  // The callback rides a ref so the disk subscription below never re-runs
+  // merely because a render produced a new function identity.
+  const notifyDiskChange = useRef(onDiskChange);
+  notifyDiskChange.current = onDiskChange;
+
   // Deliberately keyed on the worktree alone. Re-subscribing leaves a window
   // where the stream has been torn down and its replacement has not arrived,
   // and anything that changes on disk in between reaches nobody — so this must
@@ -277,6 +394,7 @@ function TreePane({
       isReady: () => ready.current,
       known: () => known.current,
       model,
+      onEvent: () => notifyDiskChange.current(),
       signal: controller.signal,
       worktreePath,
     });

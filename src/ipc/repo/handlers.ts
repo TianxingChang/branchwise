@@ -5,8 +5,16 @@ import {
   repoSnapshotSchema,
   worktreeStatusSchema,
 } from "@/types/branch";
-import { diffSummarySchema, worktreeDiffSchema } from "@/types/diff";
-import { worktreeDiff, worktreeDiffSummary } from "./diff";
+import {
+  changedPathSchema,
+  diffSummarySchema,
+  worktreeDiffSchema,
+} from "@/types/diff";
+import {
+  worktreeChangedPaths,
+  worktreeDiff,
+  worktreeDiffSummary,
+} from "./diff";
 import {
   createWorktree,
   deleteBranch,
@@ -146,6 +154,20 @@ export const diff = os
     expose(async () => {
       const repo = await requireRepo(input.path);
       return await worktreeDiff(repo, {
+        parentBranch: input.parentBranch,
+        worktreePath: input.worktreePath,
+      });
+    })
+  );
+
+/** Path-level statuses for the file tree's badges. */
+export const changedPaths = os
+  .input(diffInput)
+  .output(z.array(changedPathSchema))
+  .handler(({ input }) =>
+    expose(async () => {
+      const repo = await requireRepo(input.path);
+      return await worktreeChangedPaths(repo, {
         parentBranch: input.parentBranch,
         worktreePath: input.worktreePath,
       });

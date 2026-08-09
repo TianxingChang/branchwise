@@ -61,12 +61,30 @@ export const worktreeDiffSchema = z.object({
   untracked: z.array(z.string()),
 });
 
+/**
+ * What the file tree needs to badge a path — mirrors the tree component's
+ * GitStatus vocabulary. Deleted files are omitted: the tree has no node to
+ * hang a badge on.
+ */
+export const CHANGED_PATH_STATUSES = [
+  "added",
+  "modified",
+  "renamed",
+  "untracked",
+] as const;
+
+export const changedPathSchema = z.object({
+  path: z.string(),
+  status: z.enum(CHANGED_PATH_STATUSES),
+});
+
 export const diffSummarySchema = z.object({
   additions: z.number().int().min(0),
   deletions: z.number().int().min(0),
   files: z.number().int().min(0),
 });
 
+export type ChangedPath = z.infer<typeof changedPathSchema>;
 export type DiffLine = z.infer<typeof diffLineSchema>;
 export type DiffHunk = z.infer<typeof diffHunkSchema>;
 export type FileDiff = z.infer<typeof fileDiffSchema>;

@@ -1,6 +1,6 @@
 import { ipc } from "@/ipc/manager";
 import type { RepoInfo, RepoSnapshot, WorktreeStatus } from "@/types/branch";
-import type { DiffSummary, WorktreeDiff } from "@/types/diff";
+import type { ChangedPath, DiffSummary, WorktreeDiff } from "@/types/diff";
 
 export function resolveRepo(path: string): Promise<RepoInfo | null> {
   return ipc.client.repo.resolve({ path });
@@ -44,6 +44,14 @@ export function worktreeDiff(input: {
   worktreePath: string;
 }): Promise<WorktreeDiff> {
   return ipc.client.repo.diff(input);
+}
+
+export function worktreeChangedPaths(input: {
+  parentBranch: string | null;
+  path: string;
+  worktreePath: string;
+}): Promise<ChangedPath[]> {
+  return ipc.client.repo.changedPaths(input);
 }
 
 export function worktreeDiffSummary(input: {

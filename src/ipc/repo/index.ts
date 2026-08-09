@@ -1,4 +1,5 @@
 import {
+  changedPaths,
   create,
   diff,
   diffSummary,
@@ -12,6 +13,7 @@ import {
 } from "./handlers";
 
 export const repo = {
+  changedPaths,
   create,
   diff,
   diffSummary,

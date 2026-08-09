@@ -4,7 +4,11 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
 import { afterAll, beforeAll, describe, expect, test } from "vitest";
-import { worktreeDiff, worktreeDiffSummary } from "@/ipc/repo/diff";
+import {
+  worktreeChangedPaths,
+  worktreeDiff,
+  worktreeDiffSummary,
+} from "@/ipc/repo/diff";
 import { resolveRepo } from "@/ipc/repo/repo";
 import type { RepoInfo } from "@/types/branch";
 
@@ -160,6 +164,22 @@ describe("worktreeDiffSummary", () => {
     expect(summary.files).toBe(3);
     expect(summary.additions).toBe(2);
     expect(summary.deletions).toBe(1);
+  });
+});
+
+describe("worktreeChangedPaths", () => {
+  test("labels every touched path the way the file tree expects", async () => {
+    const entries = await worktreeChangedPaths(repo, {
+      parentBranch: "main",
+      worktreePath: wt,
+    });
+    const byPath = new Map(entries.map((entry) => [entry.path, entry.status]));
+
+    expect(byPath.get("base.txt")).toBe("modified");
+    expect(byPath.get("keep.txt")).toBe("modified");
+    expect(byPath.get("moved.txt")).toBe("renamed");
+    expect(byPath.get("fresh.txt")).toBe("untracked");
+    expect(byPath.has("parent-only.txt")).toBe(false);
   });
 });
 

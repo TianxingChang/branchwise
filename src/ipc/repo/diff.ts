@@ -1,6 +1,6 @@
 import { parseUnifiedDiff } from "@/lib/git/diff-parse";
 import type { RepoInfo } from "@/types/branch";
-import type { DiffSummary, WorktreeDiff } from "@/types/diff";
+import type { ChangedPath, DiffSummary, WorktreeDiff } from "@/types/diff";
 import { runGit, tryGit } from "./command";
 
 interface DiffInput {
@@ -115,6 +115,74 @@ export async function worktreeDiffSummary(
   }
 
   return { additions, deletions, files };
+}
+
+/**
+ * The badge feed for the file tree: every touched path with the status the
+ * tree's git-status lane expects. Cheap by construction — `--name-status`
+ * moves file names, never patch text.
+ */
+export async function worktreeChangedPaths(
+  repo: RepoInfo,
+  input: DiffInput
+): Promise<ChangedPath[]> {
+  const baseRef = await resolveBase(repo, input);
+
+  const nameStatus = await runGit(
+    input.worktreePath,
+    ["diff", ...SAFE_DIFF, "--name-status", "-z", baseRef],
+    { queueKey: repo.root }
+  );
+  const entries = parseNameStatusZ(nameStatus);
+
+  const porcelain = await tryGit(
+    input.worktreePath,
+    ["status", "--porcelain", "-z"],
+    { queueKey: repo.root }
+  );
+  for (const path of parseStatusZ(porcelain ?? "").untracked) {
+    entries.push({ path, status: "untracked" });
+  }
+
+  return entries;
+}
+
+/** Reads `git diff --name-status -z` records into badge entries. */
+function parseNameStatusZ(text: string): ChangedPath[] {
+  const entries: ChangedPath[] = [];
+  const tokens = text.split("\0");
+  let index = 0;
+
+  while (index < tokens.length) {
+    const status = tokens[index];
+    index += 1;
+    if (status.length === 0) {
+      continue;
+    }
+
+    const [kind] = status;
+    if (kind === "R" || kind === "C") {
+      // Two path tokens: the original, then the one that exists now.
+      const target = tokens[index + 1];
+      index += 2;
+      if (target) {
+        entries.push({
+          path: target,
+          status: kind === "R" ? "renamed" : "added",
+        });
+      }
+      continue;
+    }
+
+    const path = tokens[index];
+    index += 1;
+    // A deleted file has no tree node to badge.
+    if (path && kind !== "D") {
+      entries.push({ path, status: kind === "A" ? "added" : "modified" });
+    }
+  }
+
+  return entries;
 }
 
 /**
