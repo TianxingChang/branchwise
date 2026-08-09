@@ -5027,7 +5027,9 @@ git rm src/tests/unit/agent-tasks.test.ts
 git commit -m "Fold real agent events into the renderer store"
 ```
 
----### Task 12: Agent tab UI
+---
+
+### Task 12: Agent tab UI
 
 **Files:**
 - Rewrite: `src/components/panel/agent-tab.tsx`
