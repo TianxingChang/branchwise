@@ -6,7 +6,7 @@ function rec(value: unknown): Rec | null {
   return value !== null && typeof value === "object" ? (value as Rec) : null;
 }
 
-function clip(value: unknown): string {
+export function clip(value: unknown): string {
   if (typeof value !== "string") {
     return "";
   }

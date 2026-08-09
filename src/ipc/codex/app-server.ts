@@ -59,6 +59,7 @@ export class CodexAppServer {
   private readonly requestHandlers = new Set<
     (method: string, params: unknown) => Promise<unknown> | unknown
   >();
+  private readonly exitHandlers = new Set<() => void>();
 
   constructor(spawnChild: () => ChildStdio) {
     this.spawnChild = spawnChild;
@@ -80,6 +81,16 @@ export class CodexAppServer {
   ): () => void {
     this.requestHandlers.add(handler);
     return () => this.requestHandlers.delete(handler);
+  }
+
+  /**
+   * Fires when the live child exits, after pending requests were rejected.
+   * Turns awaiting notifications (not requests) need this to learn the
+   * process died — otherwise a mid-turn crash suspends them forever.
+   */
+  onChildExit(handler: () => void): () => void {
+    this.exitHandlers.add(handler);
+    return () => this.exitHandlers.delete(handler);
   }
 
   async request(method: string, params: unknown): Promise<unknown> {
@@ -137,6 +148,9 @@ export class CodexAppServer {
       this.handshake = null;
       this.child = null;
       this.buffer = "";
+      for (const handler of this.exitHandlers) {
+        handler();
+      }
     });
 
     this.handshake = (async () => {
@@ -212,29 +226,21 @@ export class CodexAppServer {
         }
         return;
       }
-      // Server→client request: first handler that answers wins. A handler
-      // that throws synchronously must become an error reply, not an
-      // exception escaping the stream's data listener.
-      const [handler] = [...this.requestHandlers];
-      let outcome: Promise<unknown>;
-      try {
-        outcome = Promise.resolve(
-          handler ? handler(message.method, message.params) : undefined
-        );
-      } catch (error) {
-        outcome = Promise.reject(error);
-      }
-      outcome
-        .then((result) => this.send({ id: message.id as number, result }))
-        .catch((error: unknown) =>
-          this.send({
-            error: {
-              code: -32_000,
-              message: error instanceof Error ? error.message : "failed",
-            },
-            id: message.id as number,
-          })
-        );
+      // Server→client request. Deferred one microtask so responses in the
+      // same stdout chunk settle first (a thread/start reply and that
+      // thread's first approval can share a chunk — the awaiter must see
+      // its threadId before the approval dispatches). Handlers are tried in
+      // registration order; the first to answer non-undefined claims the
+      // request (concurrent turns each pass on requests that aren't
+      // theirs). A synchronous throw becomes an error reply. Unclaimed
+      // requests get an error reply rather than an invented decision.
+      queueMicrotask(() => {
+        Promise.resolve().then(() => {
+          this.dispatchRequest(message).catch(() => {
+            // Dispatch errors are already handled and sent as error replies
+          });
+        });
+      });
       return;
     }
 
@@ -256,5 +262,35 @@ export class CodexAppServer {
       return;
     }
     entry.resolve(message.result);
+  }
+
+  private async dispatchRequest(
+    message: Record<string, unknown>
+  ): Promise<void> {
+    const id = message.id as number;
+    const method = message.method as string;
+    try {
+      for (const handler of [...this.requestHandlers]) {
+        // Sequential on purpose: registration order is the claim order.
+        // biome-ignore lint/performance/noAwaitInLoops: see above
+        const result = await handler(method, message.params);
+        if (result !== undefined) {
+          this.send({ id, result });
+          return;
+        }
+      }
+      this.send({
+        error: { code: -32_001, message: `no handler claimed ${method}` },
+        id,
+      });
+    } catch (error) {
+      this.send({
+        error: {
+          code: -32_000,
+          message: error instanceof Error ? error.message : "failed",
+        },
+        id,
+      });
+    }
   }
 }

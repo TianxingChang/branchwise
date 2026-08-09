@@ -5,13 +5,29 @@ import { createCodexDriver } from "@/ipc/codex/adapter";
 import type { StartTurnInput } from "@/ipc/agent/driver";
 import type { AgentEvent } from "@/types/agent";
 
-function scriptedChild(options: { withApproval: boolean }) {
+function scriptedChild(options: {
+  withApproval: boolean;
+  delayTurnAck?: boolean;
+  killAfterTurnStart?: boolean;
+}) {
   const stdin = new PassThrough();
   const stdout = new PassThrough();
   const received: Record<string, unknown>[] = [];
+  const exitCallbacks: (() => void)[] = [];
+  let releaseAck: (() => void) | null = null;
   let buffer = "";
   function send(message: Record<string, unknown>): void {
     stdout.write(`${JSON.stringify(message)}\n`);
+  }
+  function finishTurn(): void {
+    send({
+      method: "item/agentMessage/delta",
+      params: { delta: "done", threadId: "th_9" },
+    });
+    send({
+      method: "turn/completed",
+      params: { threadId: "th_9", turn: { status: "completed" } },
+    });
   }
   stdin.on("data", (chunk: Buffer) => {
     buffer += chunk.toString("utf8");
@@ -32,7 +48,19 @@ function scriptedChild(options: { withApproval: boolean }) {
         send({ id: message.id, result: { threadId: "th_9" } });
       }
       if (message.method === "turn/start") {
-        send({ id: message.id, result: { turnId: "turn_9" } });
+        const ack = () => send({ id: message.id, result: { turnId: "turn_9" } });
+        if (options.delayTurnAck) {
+          releaseAck = ack;
+          continue;
+        }
+        ack();
+        if (options.killAfterTurnStart) {
+          // Die without ever completing the turn.
+          for (const cb of exitCallbacks) {
+            cb();
+          }
+          continue;
+        }
         if (options.withApproval) {
           // Ask for approval before doing anything else; the wire round-trip
           // is what's under test, not the decision's effect.
@@ -47,28 +75,31 @@ function scriptedChild(options: { withApproval: boolean }) {
             },
           });
         }
-        send({
-          method: "item/agentMessage/delta",
-          params: { delta: "done", threadId: "th_9" },
-        });
-        send({
-          method: "turn/completed",
-          params: { threadId: "th_9", turn: { status: "completed" } },
-        });
+        finishTurn();
       }
       if (message.method === "turn/interrupt") {
         send({ id: message.id, result: {} });
+        finishTurn();
       }
     }
   });
   const child: ChildStdio = {
-    kill: () => {},
-    onExit: () => {},
+    kill: () => {
+      for (const cb of exitCallbacks) {
+        cb();
+      }
+    },
+    onExit: (cb) => exitCallbacks.push(cb),
     pid: 1,
     stdin,
     stdout,
   };
-  return { child, received };
+  return {
+    child,
+    received,
+    releaseTurnAck: () => releaseAck?.(),
+    send,
+  };
 }
 
 function baseInput(overrides: Partial<StartTurnInput> = {}): StartTurnInput {
@@ -164,5 +195,45 @@ describe("codex adapter", () => {
     const events = await drain(driver.startTurn(baseInput()).events);
     expect(events.some((e) => e.kind === "error")).toBe(true);
     expect(events.at(-1)).toMatchObject({ kind: "turn-done", stopReason: "error" });
+  });
+
+  test("a codex crash mid-turn closes the turn instead of hanging", async () => {
+    const { child } = scriptedChild({
+      killAfterTurnStart: true,
+      withApproval: false,
+    });
+    const driver = createCodexDriver({
+      client: new CodexAppServer(() => child),
+    });
+    const events = await drain(driver.startTurn(baseInput()).events);
+    expect(events.some((e) => e.kind === "error")).toBe(true);
+    expect(events.at(-1)).toMatchObject({
+      kind: "turn-done",
+      stopReason: "error",
+    });
+  });
+
+  test("an interrupt before the turn ack is delivered after it", async () => {
+    const { child, received, releaseTurnAck } = scriptedChild({
+      delayTurnAck: true,
+      withApproval: false,
+    });
+    const driver = createCodexDriver({
+      client: new CodexAppServer(() => child),
+    });
+    const handle = driver.startTurn(baseInput());
+    const drained = drain(handle.events);
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    await handle.interrupt(); // the ack has not returned yet — must not be lost
+    releaseTurnAck();
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    const interruptMessage = received.find(
+      (m) => m.method === "turn/interrupt"
+    );
+    expect(interruptMessage?.params).toMatchObject({
+      threadId: "th_9",
+      turnId: "turn_9",
+    });
+    await drained;
   });
 });

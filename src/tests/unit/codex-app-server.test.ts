@@ -171,4 +171,46 @@ describe("CodexAppServer", () => {
     send({ id: start?.id, result: {} });
     await pending;
   });
+
+  test("a handler returning undefined passes the request to the next one", async () => {
+    const { child, received, send } = fakeChild();
+    const client = new CodexAppServer(() => child);
+    client.onRequest(() => undefined);
+    client.onRequest(() => ({ decision: "accept" }));
+    const pending = client.request("thread/start", {});
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    send({ id: 77, method: "item/fileChange/requestApproval", params: {} });
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    const reply = received.find((m) => m.id === 77 && "result" in m);
+    expect(reply?.result).toEqual({ decision: "accept" });
+    const start = received.find((m) => m.method === "thread/start");
+    send({ id: start?.id, result: {} });
+    await pending;
+  });
+
+  test("requests dispatch only after same-chunk responses have settled", async () => {
+    const { child, received } = fakeChild();
+    const client = new CodexAppServer(() => child);
+    let settled = false;
+    const pending = client.request("thread/start", {}).then((result) => {
+      settled = true;
+      return result;
+    });
+    const seenSettled: boolean[] = [];
+    client.onRequest(() => {
+      seenSettled.push(settled);
+      return { decision: "decline" };
+    });
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    const start = received.find((m) => m.method === "thread/start");
+    // One chunk: our response immediately followed by a server request.
+    (child.stdout as PassThrough).write(
+      `${JSON.stringify({ id: start?.id, result: { threadId: "th_1" } })}\n${JSON.stringify(
+        { id: 88, method: "item/permissions/requestApproval", params: {} }
+      )}\n`
+    );
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    await pending;
+    expect(seenSettled).toEqual([true]);
+  });
 });

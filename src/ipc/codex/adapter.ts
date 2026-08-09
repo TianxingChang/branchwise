@@ -7,7 +7,7 @@ import type {
 import type { AgentEvent, PermissionTier } from "@/types/agent";
 import { CodexAppServer, spawnCodexAppServer } from "./app-server";
 import { resolveCodexExecutable } from "./executable";
-import { mapCodexNotification } from "./map-events";
+import { clip, mapCodexNotification } from "./map-events";
 
 const APPROVAL_METHODS = new Set([
   "item/commandExecution/requestApproval",
@@ -40,13 +40,7 @@ function extractRequestDetail(
   p: Record<string, unknown>,
   method: string
 ): string {
-  if (typeof p.command === "string") {
-    return p.command;
-  }
-  if (typeof p.reason === "string") {
-    return p.reason;
-  }
-  return method;
+  return clip(p.command) || clip(p.path) || clip(p.reason) || method;
 }
 
 export function createCodexDriver(dependencies?: {
@@ -122,13 +116,13 @@ export function createCodexDriver(dependencies?: {
       method: string,
       params: unknown,
       push: (e: AgentEvent) => void
-    ): Promise<{ decision: "accept" | "decline" }> {
+    ): Promise<{ decision: "accept" | "decline" } | undefined> {
       if (!APPROVAL_METHODS.has(method)) {
-        return { decision: "decline" };
+        return; // not ours — let another handler claim it
       }
       const p = rec(params) ?? {};
       if (typeof p.threadId === "string" && p.threadId !== liveThreadId) {
-        return { decision: "decline" };
+        return; // another turn's thread — its handler claims it
       }
       const requestId = String(
         p.itemId ?? p.approvalId ?? p.call_id ?? randomUUID()
@@ -197,12 +191,37 @@ export function createCodexDriver(dependencies?: {
         }
       });
 
+      const offExit = server.onChildExit(() => {
+        // The process died mid-turn: close the turn or the consumer waits
+        // forever on a wake that never comes.
+        push({ kind: "error", message: "codex exited mid-turn." });
+        push({
+          costUsd: null,
+          kind: "turn-done",
+          stopReason: "error",
+          turnId,
+          usage: null,
+        });
+      });
+
       try {
         liveThreadId = await initializeThread(server);
         threads.set(input.worktreePath, liveThreadId);
         input.onThreadId(liveThreadId);
 
         liveTurnId = await initializeTurn(server, liveThreadId);
+        if (interrupted && liveThreadId && liveTurnId) {
+          // Interrupt arrived while the ack was in flight: deliver it now
+          // instead of silently dropping it.
+          server
+            .request("turn/interrupt", {
+              threadId: liveThreadId,
+              turnId: liveTurnId,
+            })
+            .catch(() => {
+              // Ignore interrupt failures; client may be gone or turn already finished.
+            });
+        }
 
         // Drain buffered events while waiting for turn-done.
         // Keep yielding until both finished and queue is empty.
@@ -237,6 +256,7 @@ export function createCodexDriver(dependencies?: {
       } finally {
         offNotification();
         offRequest();
+        offExit();
       }
     }
 
