@@ -28,6 +28,10 @@ const GIT_ENV = [
  * missing native dependency stays invisible. Copying the bundle somewhere else
  * first is the only way this test can fail when packaging is wrong.
  */
+// Copies a 350 MB bundle, launches it cold and drives a shell, and its own
+// waits are 30s each — the default per-test budget cannot cover that.
+test.setTimeout(120_000);
+
 test("the packaged app carries its own node-pty and can open a shell", async () => {
   const build = findLatestBuild();
   const staging = await mkdtemp(path.join(tmpdir(), "branchwise-install-"));

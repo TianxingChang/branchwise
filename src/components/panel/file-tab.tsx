@@ -9,9 +9,11 @@ import { isDirectoryTreePath } from "@/lib/files/scan-policy";
 import type { CanvasNode } from "@/types/branch";
 import type { FileContent } from "@/types/files";
 
-const MIN_TREE_HEIGHT = 96;
-const MIN_VIEWER_HEIGHT = 120;
-const DEFAULT_TREE_HEIGHT = 220;
+const MIN_TREE_WIDTH = 120;
+const MIN_VIEWER_WIDTH = 160;
+// The panel starts at 420px wide, so the tree takes the smaller share and
+// leaves the file the room it needs. Both edges are draggable.
+const DEFAULT_TREE_WIDTH = 180;
 
 /** Matches the panel's own surface so the shadow-rooted tree does not clash. */
 const TREE_CSS = `
@@ -42,7 +44,7 @@ function FileBrowser({ worktreePath }: { worktreePath: string }) {
   const [paths, setPaths] = useState<string[] | null>(null);
   const [truncated, setTruncated] = useState(false);
   const [openPath, setOpenPath] = useState<string | null>(null);
-  const [treeHeight, setTreeHeight] = useState(DEFAULT_TREE_HEIGHT);
+  const [treeWidth, setTreeWidth] = useState(DEFAULT_TREE_WIDTH);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -81,19 +83,19 @@ function FileBrowser({ worktreePath }: { worktreePath: string }) {
   }, []);
 
   return (
-    <div className="flex h-full flex-col">
+    <div className="flex h-full pt-2">
       <TreePane
         error={error}
-        height={treeHeight}
         onSelect={handleSelectionChange}
         paths={paths}
         truncated={truncated}
+        width={treeWidth}
         worktreePath={worktreePath}
       />
 
-      <ResizeHandle height={treeHeight} onResize={setTreeHeight} />
+      <ResizeHandle onResize={setTreeWidth} width={treeWidth} />
 
-      <div className="min-h-0 flex-1 overflow-auto">
+      <div className="min-w-0 flex-1 overflow-auto">
         {openPath === null ? (
           <EmptyViewer />
         ) : (
@@ -150,17 +152,17 @@ async function followDisk(options: {
  */
 function TreePane({
   error,
-  height,
   onSelect,
   paths,
   truncated,
+  width,
   worktreePath,
 }: {
   error: string | null;
-  height: number;
   onSelect: (selected: readonly string[]) => void;
   paths: string[] | null;
   truncated: boolean;
+  width: number;
   worktreePath: string;
 }) {
   const initialPaths = useMemo(() => paths ?? [], [paths]);
@@ -200,7 +202,10 @@ function TreePane({
 
   if (error) {
     return (
-      <p className="px-4 py-3 text-[12px] text-bw-pending" style={{ height }}>
+      <p
+        className="shrink-0 px-3 py-3 text-[12px] text-bw-pending"
+        style={{ width }}
+      >
         {error}
       </p>
     );
@@ -208,43 +213,52 @@ function TreePane({
 
   if (!paths) {
     return (
-      <p className="px-4 py-3 text-[12px] text-bw-muted" style={{ height }}>
+      <p
+        className="shrink-0 px-3 py-3 text-[12px] text-bw-muted"
+        style={{ width }}
+      >
         Reading the worktree…
       </p>
     );
   }
 
   return (
-    <div className="flex shrink-0 flex-col" style={{ height }}>
+    <div className="flex min-w-0 shrink-0 flex-col" style={{ width }}>
       <FileTree model={model} style={{ flex: 1, minHeight: 0 }} />
       {truncated ? (
-        <p className="px-3 pb-1 text-[10.5px] text-bw-pending">
-          Large worktree — the listing stops early.
+        <p className="px-2 pb-1 text-[10.5px] text-bw-pending leading-tight">
+          Listing stops early
         </p>
       ) : null}
     </div>
   );
 }
 
+/**
+ * Splits the tree from the viewer.
+ *
+ * The tree can be dragged narrow, but never past the point where the file it
+ * opens has no room left — the panel itself is only a few hundred pixels wide.
+ */
 function ResizeHandle({
-  height,
   onResize,
+  width,
 }: {
-  height: number;
   onResize: (next: number) => void;
+  width: number;
 }) {
   const handlePointerDown = useCallback(
     (event: React.PointerEvent<HTMLDivElement>) => {
       event.preventDefault();
-      const originY = event.clientY;
-      const originHeight = height;
+      const originX = event.clientX;
+      const originWidth = width;
+      const container = event.currentTarget.parentElement;
 
       const move = (moveEvent: PointerEvent) => {
-        const container = (event.target as HTMLElement).parentElement;
-        const available = container?.clientHeight ?? Number.POSITIVE_INFINITY;
+        const available = container?.clientWidth ?? Number.POSITIVE_INFINITY;
         const next = Math.min(
-          Math.max(MIN_TREE_HEIGHT, originHeight + moveEvent.clientY - originY),
-          Math.max(MIN_TREE_HEIGHT, available - MIN_VIEWER_HEIGHT)
+          Math.max(MIN_TREE_WIDTH, originWidth + moveEvent.clientX - originX),
+          Math.max(MIN_TREE_WIDTH, available - MIN_VIEWER_WIDTH)
         );
         onResize(next);
       };
@@ -256,17 +270,17 @@ function ResizeHandle({
         document.body.style.userSelect = "";
       };
 
-      document.body.style.cursor = "row-resize";
+      document.body.style.cursor = "col-resize";
       document.body.style.userSelect = "none";
       window.addEventListener("pointermove", move);
       window.addEventListener("pointerup", up);
     },
-    [height, onResize]
+    [onResize, width]
   );
 
   return (
     <div
-      className="h-1.5 shrink-0 cursor-row-resize border-bw-hairline border-y bg-bw-canvas/40 transition-colors hover:bg-bw-subtle"
+      className="w-1.5 shrink-0 cursor-col-resize border-bw-hairline border-x bg-bw-canvas/40 transition-colors hover:bg-bw-subtle"
       onPointerDown={handlePointerDown}
     />
   );
@@ -276,9 +290,7 @@ function EmptyViewer() {
   return (
     <div className="flex h-full flex-col items-center justify-center gap-1.5 px-8 text-center">
       <p className="text-[13px] text-bw-ink">Open a file</p>
-      <p className="text-[12.5px] text-bw-muted">
-        Pick one from the tree above.
-      </p>
+      <p className="text-[12.5px] text-bw-muted">Pick one from the tree.</p>
     </div>
   );
 }

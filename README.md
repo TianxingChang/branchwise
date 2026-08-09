@@ -106,8 +106,9 @@ inside every worktree, so they are read on demand for the selected node only.
   grandparent — git does not cascade, and neither should the canvas.
 - **Prune**: a worktree whose directory was deleted by hand is shown as missing,
   with a one-click cleanup.
-- **Files**: a live file tree over the worktree, built on
-  [`@pierre/trees`](https://trees.software/). It tracks the disk — create,
+- **Files**: a live file tree beside the file it opens, built on
+  [`@pierre/trees`](https://trees.software/). The split is draggable. It tracks
+  the disk — create,
   edit or delete a file from a terminal or an agent and the tree and the open
   file follow within a moment, without losing expansion or selection. Source
   files are syntax highlighted with Shiki; markdown renders through tiptap

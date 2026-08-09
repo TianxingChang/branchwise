@@ -110,6 +110,30 @@ test.afterAll(async () => {
 const treeItem = (name: string) =>
   page.getByRole("treeitem", { exact: true, name });
 
+/**
+ * Opens a file and confirms it is the one that opened.
+ *
+ * Rows shift as the watcher reports changes, so a click resolved a moment
+ * earlier can land on a neighbour. The viewer header is the only proof that
+ * the intended file is the one on screen.
+ */
+async function openFile(name: string, relativePath: string) {
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    // Retries are sequential by definition: each one reacts to the last.
+    // biome-ignore lint/performance/noAwaitInLoops: see above
+    await treeItem(name).click();
+    try {
+      await expect(page.getByText(relativePath, { exact: true })).toBeVisible({
+        timeout: 5000,
+      });
+      return;
+    } catch {
+      // The click hit a neighbouring row; the loop tries again.
+    }
+  }
+  throw new Error(`could not open ${relativePath}`);
+}
+
 test("renders the worktree with @pierre/trees", async () => {
   await expect(treeItem("README.md")).toBeVisible({ timeout: 30_000 });
   await expect(treeItem("src")).toBeVisible();
@@ -121,7 +145,7 @@ test("shows a heavy directory without listing its contents", async () => {
 });
 
 test("highlights code when a source file is opened", async () => {
-  await treeItem("index.ts").click();
+  await openFile("index.ts", "src/index.ts");
 
   await expect(page.locator(".branchwise-code")).toBeVisible({
     timeout: 30_000,
@@ -135,7 +159,7 @@ test("highlights code when a source file is opened", async () => {
 });
 
 test("renders markdown through tiptap rather than as source", async () => {
-  await treeItem("README.md").click();
+  await openFile("README.md", "README.md");
 
   const markdown = page.locator(".branchwise-markdown");
   await expect(markdown).toBeVisible({ timeout: 30_000 });
