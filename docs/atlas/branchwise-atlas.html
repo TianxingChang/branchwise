@@ -1107,7 +1107,7 @@ affordance on the node's right edge mirroring the + stub, with a keyboard equiva
 badges to unselected nodes. Component test asserting the chevron appears and disappears correctly.`
 },
 {
-  id:'L2', lane:'L', slug:'diff-full', size:'M', status:'planned', week:[7,8],
+  id:'L2', lane:'L', slug:'diff-full', size:'M', status:'done', week:[7,8],
   title:'Review the diff at a width you can actually read',
   one:'Opening a diff takes over the window; the canvas becomes a narrow rail you can still switch branches in.',
   why:`Geist Mono at 12.5px in a 420px panel is about 53 characters. Most real code lines are longer, so every
@@ -1121,11 +1121,12 @@ badges to unselected nodes. Component test asserting the chevron appears and dis
     'The Agent tab absorbs a compact "files touched, +12/−4" strip — 80% of the time the question is "is this going somewhere sane", not "review this".'
   ],
   watch:[
-    'The panel is currently styled as a floating overlay (rounded, blurred, shadowed) while physically shrinking the canvas. It costs the layout of a split and reads as a transient. Pick one per posture; drop the backdrop blur in split.',
-    'The resize handle is a bare 8px div with no visible affordance, no role, and no keyboard.'
+    'Landed 2026-08-09 on feat/diff-full (worktree .claude/worktrees/diff-full), TDD, 202 tests green. Diff base: merge-base(parent)→worktree — committed+uncommitted in one view, dirty badge per file, untracked listed by name (git diff cannot show their content). Unified layout, shiki per-file lazy highlight; intra-line word diff deferred. Postures cycle on ⌘\\; click-node→peek, diff-tab→full, leaving diff restores the interrupted posture. Spec: docs/superpowers/specs/2026-08-09-diff-full-design.md. C3 deliberately left undecided; the View tab untouched (a parallel session is building it).',
+    'The overlay-vs-docked contradiction is resolved per posture: peek keeps the float styling and reserves nothing, split docks and drops the blur.',
+    'The resize handle is now role=separator with aria-value* and arrow keys; width clamp is relative (canvas keeps two node widths).'
   ],
   deps:['S6'], soft:['C3'],
-  prompt:`Implement three panel postures — peek (overlay, reserves no space, Esc dismisses), split (reserves
+  prompt:`(landed — 2026-08-09) Implement three panel postures — peek (overlay, reserves no space, Esc dismisses), split (reserves
 width, resizable), full (takes the window, canvas collapses to a ~200px branch rail) — on a single shortcut,
 with click-a-node → peek and open-diff → full. Make the width clamp relative to window width so the canvas
 never falls below two node widths. Reorder the tabs to Agent, Diff, Terminal, Files, Preview. Give the resize
