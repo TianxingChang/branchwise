@@ -1695,6 +1695,35 @@ describe("claude adapter", () => {
       stopReason: "interrupted",
     });
   });
+
+  test("a rejecting executable resolver becomes an error event, not a throw", async () => {
+    const driver = createClaudeDriver({
+      queryFactory: () => {
+        throw new Error("must not be called");
+      },
+      resolveExecutable: () => Promise.reject(new Error("resolver exploded")),
+    });
+    const events = await drain(driver.startTurn(baseInput()).events);
+    expect(events.some((e) => e.kind === "error")).toBe(true);
+    expect(events.at(-1)).toMatchObject({
+      kind: "turn-done",
+      stopReason: "error",
+    });
+  });
+
+  test("a stream failure after the result never emits a second turn-done", async () => {
+    const driver = createClaudeDriver({
+      queryFactory: () =>
+        (async function* () {
+          yield { subtype: "success", total_cost_usd: 0.01, type: "result" };
+          throw new Error("cleanup failed");
+        })(),
+      resolveExecutable: () => Promise.resolve("/bin/claude"),
+    });
+    const events = await drain(driver.startTurn(baseInput()).events);
+    expect(events.filter((e) => e.kind === "turn-done")).toHaveLength(1);
+    expect(events.at(-1)?.kind).toBe("error");
+  });
 });
 ```
 
@@ -1765,23 +1794,26 @@ export function createClaudeDriver(dependencies?: {
     async function* events(): AsyncGenerator<AgentEvent> {
       yield { kind: "turn-started", turnId };
 
-      const executable = await resolve();
-      if (!executable) {
-        yield { kind: "error", message: INSTALL_HINT };
-        yield done("error");
-        return;
-      }
-
-      const options = buildClaudeOptions({
-        abortController: controller,
-        canUseTool,
-        executable,
-        resumeSessionId: input.resume.sessionId,
-        tier: input.tier,
-        worktreePath: input.worktreePath,
-      });
-
+      // Nothing in this generator may throw to the consumer: resolver
+      // rejections, options building and stream failures all become error
+      // events, and a turn emits exactly one terminal turn-done.
       try {
+        const executable = await resolve();
+        if (!executable) {
+          yield { kind: "error", message: INSTALL_HINT };
+          yield done("error");
+          return;
+        }
+
+        const options = buildClaudeOptions({
+          abortController: controller,
+          canUseTool,
+          executable,
+          resumeSessionId: input.resume.sessionId,
+          tier: input.tier,
+          worktreePath: input.worktreePath,
+        });
+
         const stream = factory
           ? factory({ options, prompt: input.prompt })
           : await defaultQueryFactory({ options, prompt: input.prompt });
@@ -1808,7 +1840,11 @@ export function createClaudeDriver(dependencies?: {
             message:
               error instanceof Error ? error.message : "The Claude run failed.",
           };
-          yield done("error");
+          // A late failure after the result already closed the turn gets
+          // surfaced as noise only — never a second terminal event.
+          if (!sawResult) {
+            yield done("error");
+          }
           return;
         }
       }
