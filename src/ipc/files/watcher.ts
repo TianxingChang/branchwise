@@ -7,9 +7,20 @@ import type { FileChange } from "@/types/files";
 import { isInsideUnwalkedDirectory } from "./scan";
 
 const DEBOUNCE_MS = 60;
+/**
+ * How long a watcher outlives its last subscriber.
+ *
+ * A recursive `fs.watch` is not instantly live — on macOS it takes a moment
+ * before events start arriving, so anything that happens right after it starts
+ * is simply missed. Switching a panel tab away and back would otherwise tear
+ * the watcher down and pay that warm-up again, with a window where edits go
+ * unreported.
+ */
+const IDLE_GRACE_MS = 10_000;
 
 interface Watcher {
   fsWatcher: FSWatcher | null;
+  idleTimer: ReturnType<typeof setTimeout> | null;
   pending: Set<string>;
   subscribers: Set<EventQueue<FileChange>>;
   timer: ReturnType<typeof setTimeout> | null;
@@ -78,6 +89,7 @@ function schedule(root: string, relative: string) {
 function start(root: string): Watcher {
   const watcher: Watcher = {
     fsWatcher: null,
+    idleTimer: null,
     pending: new Set(),
     subscribers: new Set(),
     timer: null,
@@ -101,6 +113,11 @@ function start(root: string): Watcher {
 
 export function subscribeToChanges(root: string): EventQueue<FileChange> {
   const watcher = watchers.get(root) ?? start(root);
+
+  if (watcher.idleTimer) {
+    clearTimeout(watcher.idleTimer);
+    watcher.idleTimer = null;
+  }
   const queue = new EventQueue<FileChange>({
     // Repeated events for the same path collapse; different paths do not.
     merge: (left, right) =>
@@ -123,8 +140,8 @@ export function unsubscribeFromChanges(
   watcher.subscribers.delete(queue);
   queue.close();
 
-  if (watcher.subscribers.size === 0) {
-    stopWatching(root);
+  if (watcher.subscribers.size === 0 && !watcher.idleTimer) {
+    watcher.idleTimer = setTimeout(() => stopWatching(root), IDLE_GRACE_MS);
   }
 }
 
@@ -137,6 +154,9 @@ export function stopWatching(root: string): void {
   watcher.fsWatcher?.close();
   if (watcher.timer) {
     clearTimeout(watcher.timer);
+  }
+  if (watcher.idleTimer) {
+    clearTimeout(watcher.idleTimer);
   }
   for (const queue of watcher.subscribers) {
     queue.close();

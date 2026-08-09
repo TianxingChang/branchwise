@@ -224,6 +224,11 @@ Three layers, and the middle one carries the weight:
 - **Shiki runs on its JavaScript regex engine, not Oniguruma.** The default
   engine fetches a WebAssembly binary, which is not something to rely on from
   the `file://` origin a packaged renderer runs at.
+- **A recursive `fs.watch` is not live the instant it starts.** On macOS there
+  is a warm-up before events arrive, so a change made right after attaching is
+  missed. The file watcher therefore outlives its last subscriber by ten
+  seconds — switching a panel tab away and back reuses a warm watcher instead
+  of paying that window again.
 - **A path from the renderer is untrusted input.** The File tab names files by
   a path relative to the worktree, so `src/../../..` would otherwise read the
   whole machine. Segment normalisation is not enough on its own: a symlink

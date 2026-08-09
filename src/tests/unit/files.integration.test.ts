@@ -183,7 +183,6 @@ describe("the file watcher", () => {
     }
   });
 
-  // biome-ignore lint/suspicious/useAwait: async keeps the call sites uniform with the rest of the suite
   async function collect(root: string) {
     const seen: FileChange[] = [];
     const queue = subscribeToChanges(root);
@@ -199,6 +198,10 @@ describe("the file watcher", () => {
       controller.abort();
       unsubscribeFromChanges(root, queue);
     });
+
+    // A watcher that has just started cannot report what happened before it
+    // was listening; give the first one in a run time to come up.
+    await new Promise((resolve) => setTimeout(resolve, 250));
 
     return { pump, seen };
   }

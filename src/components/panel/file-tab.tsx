@@ -16,12 +16,45 @@ const MIN_VIEWER_WIDTH = 160;
 const DEFAULT_TREE_WIDTH = 180;
 
 /** Matches the panel's own surface so the shadow-rooted tree does not clash. */
+const SEARCH_ICON =
+  "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%238c8b84' stroke-width='2.2' stroke-linecap='round'%3E%3Ccircle cx='11' cy='11' r='7'/%3E%3Cpath d='M20 20l-3.8-3.8'/%3E%3C/svg%3E";
+
+/**
+ * Dresses the shadow-rooted tree in the panel's own colours and spacing.
+ *
+ * Everything goes through the library's `-override` variables rather than
+ * re-declaring its rules: those win regardless of which stylesheet the shadow
+ * root happens to apply last.
+ *
+ * The search field's icon is placed to land on the same column as the row
+ * chevrons below it — inline padding (8) plus the item's own margin (2) and
+ * padding (8) is where a chevron starts, so the icon sits 10px into a field
+ * whose left edge is already at 8.
+ */
 const TREE_CSS = `
   :host {
-    background: transparent;
-    font-size: 12px;
+    --trees-bg-override: transparent;
+    --trees-padding-inline-override: 8px;
+    --trees-font-size-override: 12px;
+    --trees-item-height: 26px;
+    --trees-border-radius-override: 8px;
+    --trees-border-color-override: var(--bw-hairline);
+    --trees-fg-override: var(--bw-ink);
+    --trees-fg-muted-override: var(--bw-muted);
+    --trees-selected-bg-override: var(--bw-subtle);
+    --trees-selected-fg-override: var(--bw-ink);
+    --trees-search-bg-override: transparent;
+    --trees-search-fg-override: var(--bw-ink);
+    --trees-search-font-weight-override: 400;
   }
-  button[data-type='item'] { font-size: 12px; }
+
+  [data-file-tree-search-input] {
+    background-image: url("${SEARCH_ICON}");
+    background-repeat: no-repeat;
+    background-position: 10px center;
+    background-size: 12px 12px;
+    padding-inline-start: 28px;
+  }
 `;
 
 interface FileTabProps {
@@ -286,7 +319,7 @@ function ResizeHandle({
 
   return (
     <div
-      className="relative z-10 -mx-1 w-2 shrink-0 cursor-col-resize bg-transparent transition-colors hover:bg-bw-hairline"
+      className="relative z-10 w-px shrink-0 cursor-col-resize bg-bw-hairline after:absolute after:inset-y-0 after:-left-1 after:w-2 after:content-['']"
       onPointerDown={handlePointerDown}
     />
   );
