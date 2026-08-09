@@ -10,6 +10,8 @@ import type { RepoInfo } from "@/types/branch";
 
 const run = promisify(execFile);
 
+const SHA_40 = /^[0-9a-f]{40}$/;
+
 /**
  * Real git, because the semantics under test are git's: that a diff against
  * the merge-base folds committed and uncommitted work into one view, and that
@@ -96,7 +98,7 @@ describe("worktreeDiff", () => {
     expect(diff.files.map((file) => file.path)).not.toContain(
       "parent-only.txt"
     );
-    expect(diff.baseRef).toMatch(/^[0-9a-f]{40}$/);
+    expect(diff.baseRef).toMatch(SHA_40);
   });
 
   test("marks only the files with uncommitted changes dirty", async () => {

@@ -9,8 +9,8 @@ import {
   watchRepo,
 } from "@/actions/repo";
 import { killTerminal, killTerminalsUnder } from "@/actions/terminal";
-import { MAX_PANEL_WIDTH, MIN_PANEL_WIDTH } from "@/lib/branch/constants";
 import { createSeedDoc } from "@/lib/branch/doc";
+import { clampSplitWidth, postureOnOpenTab } from "@/lib/branch/posture";
 import {
   diffSnapshots,
   migrateAnnotations,
@@ -21,6 +21,7 @@ import {
 import type {
   CanvasNode,
   GraphDoc,
+  PanelPosture,
   PanelTab,
   RepoInfo,
   RepoSnapshot,
@@ -73,6 +74,7 @@ interface RepoStoreState {
   ) => Promise<MutationResult>;
   selectNode: (folder: string, worktreePath: string | null) => void;
   setPanelCollapsed: (folder: string, collapsed: boolean) => void;
+  setPanelPosture: (folder: string, posture: PanelPosture) => void;
   setPanelTab: (folder: string, tab: PanelTab) => void;
   setPanelWidth: (folder: string, width: number) => void;
   setParent: (
@@ -93,6 +95,13 @@ const EMPTY: ProjectState = {
 
 const subscriptions = new Map<string, AbortController>();
 const saveTimers = new Map<string, ReturnType<typeof setTimeout>>();
+
+/**
+ * The posture the Diff tab interrupted, per project. Deliberately not
+ * persisted: after a restart, leaving a full-screen diff falls back to split
+ * rather than to a stale memory.
+ */
+const postureBeforeFull = new Map<string, PanelPosture>();
 
 function scheduleSave(repoRoot: string, doc: GraphDoc) {
   const pending = saveTimers.get(repoRoot);
@@ -357,15 +366,37 @@ export const useRepoStore = create<RepoStoreState>()((set, get) => {
       }));
     },
 
+    setPanelPosture: (folder, posture) => {
+      // An explicit posture choice overrides the Diff tab's promotion, so the
+      // interrupted posture no longer applies.
+      postureBeforeFull.delete(folder);
+      mutateDoc(folder, (doc) =>
+        doc.panel.posture === posture
+          ? doc
+          : { ...doc, panel: { ...doc.panel, posture } }
+      );
+    },
+
     setPanelTab: (folder, tab) => {
-      mutateDoc(folder, (doc) => ({ ...doc, panel: { ...doc.panel, tab } }));
+      mutateDoc(folder, (doc) => {
+        if (doc.panel.tab === tab) {
+          return doc;
+        }
+
+        let posture = postureOnOpenTab(tab, doc.panel.posture);
+        if (tab === "diff" && doc.panel.posture !== "full") {
+          postureBeforeFull.set(folder, doc.panel.posture);
+        } else if (doc.panel.tab === "diff" && doc.panel.posture === "full") {
+          posture = postureBeforeFull.get(folder) ?? "split";
+          postureBeforeFull.delete(folder);
+        }
+
+        return { ...doc, panel: { ...doc.panel, posture, tab } };
+      });
     },
 
     setPanelWidth: (folder, width) => {
-      const clamped = Math.min(
-        MAX_PANEL_WIDTH,
-        Math.max(MIN_PANEL_WIDTH, Math.round(width))
-      );
+      const clamped = clampSplitWidth(window.innerWidth, width);
       mutateDoc(folder, (doc) => ({
         ...doc,
         panel: { ...doc.panel, width: clamped },

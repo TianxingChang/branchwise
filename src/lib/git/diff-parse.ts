@@ -25,36 +25,34 @@ export function parseUnifiedDiff(text: string): FileDiff[] {
   return files;
 }
 
+interface FileHeaders {
+  binary: boolean;
+  kind: FileDiff["kind"];
+  newHeaderPath: string | null;
+  oldHeaderPath: string | null;
+  renameFrom: string | null;
+  renameTo: string | null;
+}
+
 /** Reads one file record; returns the index of the next unconsumed line. */
 function parseFile(lines: string[], header: number, out: FileDiff[]): number {
-  let kind: FileDiff["kind"] = "modified";
-  let binary = false;
-  let oldHeaderPath: string | null = null;
-  let newHeaderPath: string | null = null;
-  let renameFrom: string | null = null;
-  let renameTo: string | null = null;
+  const headers: FileHeaders = {
+    binary: false,
+    kind: "modified",
+    newHeaderPath: null,
+    oldHeaderPath: null,
+    renameFrom: null,
+    renameTo: null,
+  };
 
   let index = header + 1;
-  for (; index < lines.length; index++) {
+  while (index < lines.length) {
     const line = lines[index];
     if (line.startsWith("diff --git ") || HUNK_HEADER.test(line)) {
       break;
     }
-    if (line.startsWith("new file mode")) {
-      kind = "added";
-    } else if (line.startsWith("deleted file mode")) {
-      kind = "deleted";
-    } else if (line.startsWith("rename from ")) {
-      renameFrom = line.slice("rename from ".length);
-    } else if (line.startsWith("rename to ")) {
-      renameTo = line.slice("rename to ".length);
-    } else if (line.startsWith("Binary files ") || line === "GIT binary patch") {
-      binary = true;
-    } else if (line.startsWith("--- ")) {
-      oldHeaderPath = headerPath(line.slice(4));
-    } else if (line.startsWith("+++ ")) {
-      newHeaderPath = headerPath(line.slice(4));
-    }
+    readHeaderLine(line, headers);
+    index += 1;
   }
 
   const hunks: DiffHunk[] = [];
@@ -62,48 +60,81 @@ function parseFile(lines: string[], header: number, out: FileDiff[]): number {
     index = parseHunk(lines, index, hunks);
   }
 
-  if (renameFrom !== null && renameTo !== null) {
-    kind = "renamed";
+  if (headers.renameFrom !== null && headers.renameTo !== null) {
+    headers.kind = "renamed";
   }
 
-  const path =
-    renameTo ??
-    (kind === "deleted" ? oldHeaderPath : newHeaderPath) ??
-    oldHeaderPath ??
-    // Binary records carry no ---/+++ headers, so the diff --git line is
-    // the only path source left.
-    gitLinePath(lines[header]);
+  const path = resolvePath(headers, lines[header]);
 
   // A record with no resolvable path (a truncated or garbled patch) is
   // dropped rather than rendered as an empty row.
-  if (path === null || path === undefined) {
+  if (path === null) {
     return index;
   }
 
-  let additions = 0;
-  let deletions = 0;
-  for (const hunk of hunks) {
-    for (const hunkLine of hunk.lines) {
-      if (hunkLine.kind === "add") {
-        additions += 1;
-      } else if (hunkLine.kind === "del") {
-        deletions += 1;
-      }
-    }
-  }
+  const { additions, deletions } = countLines(hunks);
 
   out.push({
     additions,
-    binary,
+    binary: headers.binary,
     deletions,
     dirty: false,
     hunks,
-    kind,
-    oldPath: renameFrom,
+    kind: headers.kind,
+    oldPath: headers.renameFrom,
     path,
   });
 
   return index;
+}
+
+function readHeaderLine(line: string, headers: FileHeaders): void {
+  if (line.startsWith("new file mode")) {
+    headers.kind = "added";
+  } else if (line.startsWith("deleted file mode")) {
+    headers.kind = "deleted";
+  } else if (line.startsWith("rename from ")) {
+    headers.renameFrom = line.slice("rename from ".length);
+  } else if (line.startsWith("rename to ")) {
+    headers.renameTo = line.slice("rename to ".length);
+  } else if (line.startsWith("Binary files ") || line === "GIT binary patch") {
+    headers.binary = true;
+  } else if (line.startsWith("--- ")) {
+    headers.oldHeaderPath = headerPath(line.slice(4));
+  } else if (line.startsWith("+++ ")) {
+    headers.newHeaderPath = headerPath(line.slice(4));
+  }
+}
+
+function resolvePath(headers: FileHeaders, gitLine: string): string | null {
+  return (
+    headers.renameTo ??
+    (headers.kind === "deleted"
+      ? headers.oldHeaderPath
+      : headers.newHeaderPath) ??
+    headers.oldHeaderPath ??
+    // Binary records carry no ---/+++ headers, so the diff --git line is
+    // the only path source left.
+    gitLinePath(gitLine)
+  );
+}
+
+function countLines(hunks: DiffHunk[]): {
+  additions: number;
+  deletions: number;
+} {
+  let additions = 0;
+  let deletions = 0;
+  for (const hunk of hunks) {
+    for (const line of hunk.lines) {
+      if (line.kind === "add") {
+        additions += 1;
+      } else if (line.kind === "del") {
+        deletions += 1;
+      }
+    }
+  }
+  return { additions, deletions };
 }
 
 /** Reads one `@@` section; returns the index of the next unconsumed line. */
@@ -124,13 +155,15 @@ function parseHunk(lines: string[], start: number, out: DiffHunk[]): number {
   let newNo = newStart;
 
   let index = start + 1;
-  for (; index < lines.length; index++) {
+  while (index < lines.length) {
     const line = lines[index];
 
     if (line.startsWith("\\")) {
       // "\ No newline at end of file" annotates the previous line.
+      index += 1;
       continue;
     }
+
     if (line.startsWith("+")) {
       parsed.push({ kind: "add", newNo, oldNo: null, text: line.slice(1) });
       newNo += 1;
@@ -147,8 +180,8 @@ function parseHunk(lines: string[], start: number, out: DiffHunk[]): number {
       break;
     }
 
+    index += 1;
     if (oldNo >= oldStart + oldLines && newNo >= newStart + newLines) {
-      index += 1;
       break;
     }
   }

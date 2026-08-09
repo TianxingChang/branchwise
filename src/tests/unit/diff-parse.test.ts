@@ -119,18 +119,16 @@ describe("parseUnifiedDiff", () => {
     expect(hunk.oldStart).toBe(1);
     expect(hunk.newStart).toBe(1);
 
-    const first = hunk.lines[0];
+    const [first, del, added] = hunk.lines;
     expect(first.kind).toBe("context");
     expect(first.oldNo).toBe(1);
     expect(first.newNo).toBe(1);
 
-    const del = hunk.lines[1];
     expect(del.kind).toBe("del");
     expect(del.oldNo).toBe(2);
     expect(del.newNo).toBeNull();
     expect(del.text).toBe("  return a + b;");
 
-    const added = hunk.lines[2];
     expect(added.kind).toBe("add");
     expect(added.oldNo).toBeNull();
     expect(added.newNo).toBe(2);
@@ -189,7 +187,7 @@ describe("parseUnifiedDiff", () => {
     const [file] = parseUnifiedDiff(MULTI_HUNK);
 
     expect(file.hunks).toHaveLength(2);
-    const second = file.hunks[1];
+    const [, second] = file.hunks;
     expect(second.oldStart).toBe(10);
     expect(second.lines[2].kind).toBe("add");
     expect(second.lines[2].newNo).toBe(12);

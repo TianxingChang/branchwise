@@ -1,10 +1,13 @@
 import { ArrowUp, Sparkles } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
+import { worktreeDiffSummary } from "@/actions/repo";
 import {
   type AgentTaskStatus,
   conversationKey,
   useAgentStore,
 } from "@/stores/agent-store";
+import { useRepoStore } from "@/stores/repo-store";
+import type { DiffSummary } from "@/types/diff";
 import { cn } from "@/utils/tailwind";
 
 const STATUS_STYLE: Record<AgentTaskStatus, string> = {
@@ -21,13 +24,17 @@ const STATUS_LABEL: Record<AgentTaskStatus, string> = {
 
 interface AgentTabProps {
   branchLabel: string;
+  head: string;
   nodeId: string;
+  parentBranch: string | null;
   projectFolder: string;
 }
 
 export default function AgentTab({
   branchLabel,
+  head,
   nodeId,
+  parentBranch,
   projectFolder,
 }: AgentTabProps) {
   const key = conversationKey(projectFolder, nodeId);
@@ -77,6 +84,13 @@ export default function AgentTab({
 
   return (
     <div className="flex h-full flex-col">
+      <DiffStrip
+        head={head}
+        nodeId={nodeId}
+        parentBranch={parentBranch}
+        projectFolder={projectFolder}
+      />
+
       <div
         className="min-h-0 flex-1 space-y-3 overflow-y-auto px-4 py-4"
         ref={scrollRef}
@@ -123,6 +137,73 @@ export default function AgentTab({
         </div>
       </div>
     </div>
+  );
+}
+
+/**
+ * "Is this going somewhere sane" in one line — the 80% question while an
+ * agent runs. Clicking hands off to the Diff tab for the other 20%.
+ */
+function DiffStrip({
+  head,
+  nodeId,
+  parentBranch,
+  projectFolder,
+}: {
+  head: string;
+  nodeId: string;
+  parentBranch: string | null;
+  projectFolder: string;
+}) {
+  const setPanelTab = useRepoStore((state) => state.setPanelTab);
+  const [summary, setSummary] = useState<DiffSummary | null>(null);
+
+  // head is a trigger: every new commit changes what the branch would land.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: see above
+  useEffect(() => {
+    let active = true;
+
+    worktreeDiffSummary({
+      parentBranch,
+      path: projectFolder,
+      worktreePath: nodeId,
+    })
+      .then((result) => {
+        if (active) {
+          setSummary(result);
+        }
+      })
+      .catch(() => undefined);
+
+    return () => {
+      active = false;
+    };
+  }, [head, nodeId, parentBranch, projectFolder]);
+
+  const open = useCallback(() => {
+    setPanelTab(projectFolder, "diff");
+  }, [projectFolder, setPanelTab]);
+
+  if (!summary || summary.files === 0) {
+    return null;
+  }
+
+  return (
+    <button
+      className="flex items-center gap-2.5 border-bw-hairline border-b px-4 py-1.5 text-left font-mono text-[11px] transition-colors hover:bg-bw-subtle"
+      onClick={open}
+      type="button"
+    >
+      <span className="text-bw-muted">
+        {summary.files} file{summary.files === 1 ? "" : "s"}
+      </span>
+      {summary.additions > 0 ? (
+        <span className="text-bw-done">+{summary.additions}</span>
+      ) : null}
+      {summary.deletions > 0 ? (
+        <span className="text-bw-removed">−{summary.deletions}</span>
+      ) : null}
+    </button>
   );
 }
 

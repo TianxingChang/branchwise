@@ -3,14 +3,21 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { worktreeStatus } from "@/actions/repo";
 import { branchLabel } from "@/components/canvas/branch-node";
 import AgentTab from "@/components/panel/agent-tab";
+import DiffTab from "@/components/panel/diff-tab";
 import FileTab from "@/components/panel/file-tab";
 import PlaceholderTab from "@/components/panel/placeholder-tab";
 import TerminalTab from "@/components/panel/terminal-tab";
-import { MAX_PANEL_WIDTH, MIN_PANEL_WIDTH } from "@/lib/branch/constants";
+import {
+  MAX_PANEL_WIDTH,
+  MIN_PANEL_WIDTH,
+  RAIL_WIDTH,
+} from "@/lib/branch/constants";
+import { clampSplitWidth } from "@/lib/branch/posture";
 import { descendantNodeIds } from "@/lib/git/resolve";
 import { useRepoStore } from "@/stores/repo-store";
 import type {
   CanvasNode,
+  PanelPosture,
   PanelState,
   PanelTab,
   WorktreeStatus,
@@ -25,6 +32,19 @@ const TAB_LABELS: Record<PanelTab, string> = {
   terminal: "Terminal",
   view: "View",
 };
+
+/**
+ * One chrome per posture, not a blend: peek is a transient overlay and looks
+ * like one; split is a docked pane and drops the float styling — the old
+ * panel paid for both at once (atlas L2 watch item).
+ */
+const POSTURE_CHROME: Record<PanelPosture, string> = {
+  full: "top-0 right-0 bottom-0 border-bw-hairline border-l bg-bw-surface",
+  peek: "top-3 right-3 bottom-3 rounded-2xl border border-bw-hairline bg-bw-surface/95 shadow-[0_6px_24px_rgba(0,0,0,0.07)] backdrop-blur-sm",
+  split: "top-0 right-0 bottom-0 border-bw-hairline border-l bg-bw-surface",
+};
+
+const RESIZE_STEP = 16;
 
 interface NodePanelProps {
   node: CanvasNode;
@@ -71,6 +91,34 @@ export default function NodePanel({
     setPanelCollapsed(projectFolder, true);
   }, [projectFolder, setPanelCollapsed]);
 
+  // Escape dismisses the transient posture only — a docked or full panel is
+  // an arranged workspace, not something a stray keypress should tear down.
+  const handleKeyDown = useCallback(
+    (event: React.KeyboardEvent<HTMLElement>) => {
+      if (event.key === "Escape" && panel.posture === "peek") {
+        collapse();
+      }
+    },
+    [collapse, panel.posture]
+  );
+
+  const handleResizeKey = useCallback(
+    (event: React.KeyboardEvent<HTMLDivElement>) => {
+      let direction = 0;
+      if (event.key === "ArrowLeft") {
+        direction = 1;
+      } else if (event.key === "ArrowRight") {
+        direction = -1;
+      } else {
+        return;
+      }
+      event.preventDefault();
+      const step = event.shiftKey ? RESIZE_STEP * 4 : RESIZE_STEP;
+      setPanelWidth(projectFolder, width + direction * step);
+    },
+    [projectFolder, setPanelWidth, width]
+  );
+
   if (panel.collapsed) {
     return (
       <button
@@ -84,15 +132,34 @@ export default function NodePanel({
     );
   }
 
+  const full = panel.posture === "full";
+
   return (
+    // biome-ignore lint/a11y/noNoninteractiveElementInteractions: Escape-to-dismiss belongs on the panel itself; the close button duplicates it for pointer users
     <aside
-      className="absolute top-3 right-3 bottom-3 flex flex-col overflow-hidden rounded-2xl border border-bw-hairline bg-bw-surface/95 shadow-[0_6px_24px_rgba(0,0,0,0.07)] backdrop-blur-sm"
-      style={{ width }}
+      className={cn(
+        "absolute flex flex-col overflow-hidden",
+        POSTURE_CHROME[panel.posture]
+      )}
+      data-posture={panel.posture}
+      onKeyDown={handleKeyDown}
+      style={full ? { left: RAIL_WIDTH } : { width }}
     >
-      <div
-        className="absolute top-0 bottom-0 -left-0.5 z-10 w-2 cursor-col-resize"
-        onPointerDown={startResize}
-      />
+      {full ? null : (
+        // biome-ignore lint/a11y/useSemanticElements: the WAI-ARIA window-splitter pattern is role=separator on a focusable div; no semantic element resizes
+        <div
+          aria-label="Resize panel"
+          aria-orientation="vertical"
+          aria-valuemax={MAX_PANEL_WIDTH}
+          aria-valuemin={MIN_PANEL_WIDTH}
+          aria-valuenow={Math.round(width)}
+          className="absolute top-0 bottom-0 -left-0.5 z-10 w-2 cursor-col-resize outline-none focus-visible:bg-bw-accent/30"
+          onKeyDown={handleResizeKey}
+          onPointerDown={startResize}
+          role="separator"
+          tabIndex={0}
+        />
+      )}
 
       <header className="flex flex-col gap-1 px-4 pt-3.5 pb-3">
         <div className="flex items-center gap-2">
@@ -140,6 +207,7 @@ export default function NodePanel({
         <PanelBody
           branchLabel={label}
           node={node}
+          parentBranch={parentBranch}
           projectFolder={projectFolder}
           tab={panel.tab}
         />
@@ -305,11 +373,13 @@ function NodeStats({
 function PanelBody({
   branchLabel: label,
   node,
+  parentBranch,
   projectFolder,
   tab,
 }: {
   branchLabel: string;
   node: CanvasNode;
+  parentBranch: string | null;
   projectFolder: string;
   tab: PanelTab;
 }) {
@@ -317,7 +387,19 @@ function PanelBody({
     return (
       <AgentTab
         branchLabel={label}
+        head={node.head}
         nodeId={node.id}
+        parentBranch={parentBranch}
+        projectFolder={projectFolder}
+      />
+    );
+  }
+
+  if (tab === "diff") {
+    return (
+      <DiffTab
+        node={node}
+        parentBranch={parentBranch}
         projectFolder={projectFolder}
       />
     );
@@ -390,9 +472,9 @@ function useResizeHandle({
 
       const handleMove = (moveEvent: PointerEvent) => {
         const delta = stateRef.current.originX - moveEvent.clientX;
-        latest = Math.min(
-          MAX_PANEL_WIDTH,
-          Math.max(MIN_PANEL_WIDTH, stateRef.current.originWidth + delta)
+        latest = clampSplitWidth(
+          window.innerWidth,
+          stateRef.current.originWidth + delta
         );
         onMove(latest);
       };

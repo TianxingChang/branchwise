@@ -52,6 +52,7 @@
   --bw-pending: #d9a22e;
   --bw-running: #2f6bff;
   --bw-done: #3e9e63;
+  --bw-removed: #c05b4d;
 }
 
 .dark {
@@ -140,6 +141,7 @@
   --color-bw-pending: var(--bw-pending);
   --color-bw-running: var(--bw-running);
   --color-bw-done: var(--bw-done);
+  --color-bw-removed: var(--bw-removed);
 }
 
 @layer base {

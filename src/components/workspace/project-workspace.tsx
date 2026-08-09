@@ -2,21 +2,59 @@ import { useCallback, useEffect, useState } from "react";
 import type { ProjectRef } from "@/actions/project";
 import { pruneWorktrees } from "@/actions/repo";
 import BranchCanvas from "@/components/canvas/branch-canvas";
+import BranchRail from "@/components/canvas/branch-rail";
 import NodePanel from "@/components/panel/node-panel";
+import { cyclePosture } from "@/lib/branch/posture";
 import { useRepoStore } from "@/stores/repo-store";
 
-/** Matches the panel's own right/top/bottom inset. */
-const PANEL_GUTTER = 12;
+/** True when the key event began inside something that types. */
+function fromEditable(event: KeyboardEvent): boolean {
+  const { target } = event;
+  return (
+    target instanceof HTMLElement &&
+    target.closest(
+      'input, textarea, select, [contenteditable="true"], .xterm'
+    ) !== null
+  );
+}
 
 export default function ProjectWorkspace({ project }: { project: ProjectRef }) {
   const open = useRepoStore((store) => store.open);
   const close = useRepoStore((store) => store.close);
   const state = useRepoStore((store) => store.projects[project.path]);
+  const setPanelPosture = useRepoStore((store) => store.setPanelPosture);
 
   useEffect(() => {
     open(project.path);
     return () => close(project.path);
   }, [close, open, project.path]);
+
+  const doc = state?.doc ?? null;
+  const panelVisible =
+    doc !== null && doc.selectedWorktree !== null && !doc.panel.collapsed;
+  const posture = doc?.panel.posture ?? null;
+
+  // The single posture shortcut: ⌘\ (Ctrl+\ elsewhere) rotates
+  // peek → split → full while the panel is up.
+  useEffect(() => {
+    if (!panelVisible || posture === null) {
+      return;
+    }
+
+    const handleKey = (event: KeyboardEvent) => {
+      if (
+        event.key === "\\" &&
+        (event.metaKey || event.ctrlKey) &&
+        !fromEditable(event)
+      ) {
+        event.preventDefault();
+        setPanelPosture(project.path, cyclePosture(posture));
+      }
+    };
+
+    window.addEventListener("keydown", handleKey);
+    return () => window.removeEventListener("keydown", handleKey);
+  }, [panelVisible, posture, project.path, setPanelPosture]);
 
   if (!state || state.status === "idle" || state.status === "resolving") {
     return <WorkspaceMessage text="Reading the repository…" />;
@@ -34,30 +72,43 @@ export default function ProjectWorkspace({ project }: { project: ProjectRef }) {
     );
   }
 
-  const { doc, nodes } = state;
+  const { nodes } = state;
+  const panelDoc = state.doc;
   const selected =
-    nodes.find((node) => node.id === doc.selectedWorktree) ?? null;
-  const panelOpen = selected !== null && !doc.panel.collapsed;
-  const canvasRight = panelOpen ? doc.panel.width + PANEL_GUTTER : 0;
+    nodes.find((node) => node.id === panelDoc.selectedWorktree) ?? null;
+  const panelOpen = selected !== null && !panelDoc.panel.collapsed;
+  const full = panelOpen && panelDoc.panel.posture === "full";
+  // Only the docked posture reserves canvas space: peek floats over it, and
+  // full replaces it with the rail.
+  const canvasRight =
+    panelOpen && panelDoc.panel.posture === "split" ? panelDoc.panel.width : 0;
 
   return (
     <div className="relative h-full w-full bg-bw-canvas">
-      <div
-        className="absolute top-0 bottom-0 left-0"
-        style={{ right: canvasRight }}
-      >
-        <BranchCanvas
+      {full ? (
+        <BranchRail
           nodes={nodes}
           projectFolder={project.path}
-          selectedId={doc.selectedWorktree}
+          selectedId={panelDoc.selectedWorktree}
         />
-      </div>
+      ) : (
+        <div
+          className="absolute top-0 bottom-0 left-0"
+          style={{ right: canvasRight }}
+        >
+          <BranchCanvas
+            nodes={nodes}
+            projectFolder={project.path}
+            selectedId={panelDoc.selectedWorktree}
+          />
+        </div>
+      )}
 
       {selected ? (
         <NodePanel
           node={selected}
           nodes={nodes}
-          panel={doc.panel}
+          panel={panelDoc.panel}
           parentBranch={
             nodes.find((node) => node.id === selected.parentId)?.branch ?? null
           }

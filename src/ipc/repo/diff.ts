@@ -108,8 +108,10 @@ function parseStatusZ(text: string): {
   const untracked: string[] = [];
 
   const tokens = text.split("\0");
-  for (let index = 0; index < tokens.length; index++) {
+  let index = 0;
+  while (index < tokens.length) {
     const entry = tokens[index];
+    index += 1;
     if (entry.length < 4) {
       continue;
     }
