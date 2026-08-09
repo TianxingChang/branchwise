@@ -114,6 +114,9 @@ export const useAgentStore = create<AgentStoreState>()((set) => {
         actions.getAgentConfig(worktreePath),
         actions.agentHistory(worktreePath),
       ]);
+      if (controller.signal.aborted) {
+        return;
+      }
       const folded = trimToLastTurnDone(history).reduce(
         foldEvent,
         emptyConversation()
@@ -126,6 +129,9 @@ export const useAgentStore = create<AgentStoreState>()((set) => {
       }));
 
       const stream = await actions.attachAgent(worktreePath, controller.signal);
+      if (controller.signal.aborted) {
+        return;
+      }
       (async () => {
         try {
           for await (const event of stream) {

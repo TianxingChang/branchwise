@@ -90,7 +90,13 @@ export default function AgentTab({ branchLabel, worktreePath }: AgentTabProps) {
   );
 
   const hasContent = conversation.items.length > 0 || running;
-  const lastIndex = conversation.items.length - 1;
+  // The cost line has to stick to the last assistant reply specifically, not
+  // the last array slot: the next user message (or a trailing tool item)
+  // becomes the new last item the moment the user replies, which would
+  // otherwise make the estimate vanish right after it appears.
+  const lastAssistantId =
+    conversation.items.findLast((item) => item.kind === "assistant")?.id ??
+    null;
 
   return (
     <div className="flex h-full flex-col">
@@ -100,12 +106,12 @@ export default function AgentTab({ branchLabel, worktreePath }: AgentTabProps) {
       >
         {hasContent ? null : <EmptyConversation />}
 
-        {conversation.items.map((item, index) => (
+        {conversation.items.map((item) => (
           <ConversationItemRow
             item={item}
             key={item.id}
             onRespond={handleRespond}
-            showCost={index === lastIndex}
+            showCost={item.id === lastAssistantId}
           />
         ))}
 

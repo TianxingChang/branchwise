@@ -1,19 +1,33 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, test, vi } from "vitest";
 import AgentTab from "@/components/panel/agent-tab";
+import type { ConversationItem } from "@/lib/agent/fold";
 import { emptyConversation } from "@/lib/agent/fold";
 import { _setAgentActionsForTests, useAgentStore } from "@/stores/agent-store";
-import type { AgentEvent } from "@/types/agent";
 
 const WT = "/wt/feat-a";
 const APPROVE_BUTTON_NAME = /approve/i;
 const INTERRUPT_BUTTON_NAME = /interrupt/i;
 const AGENT_BACKEND_LABEL = /agent backend/i;
 
+// A promise that intentionally never settles, matching attachAgent's
+// existing "never yields, never ends" fake stream below: every test in this
+// file seeds the session's config/conversation directly via seedSession()
+// and asserts against that seeded state, never against what open() would
+// itself fetch. Letting getAgentConfig/agentHistory resolve would race that
+// fetch's own patch() against the test body — landing, unawaited, after the
+// synchronous assertions already ran — and produce an act() warning for a
+// value no test reads. Hanging them is a no-op for coverage (agent-store.test.ts
+// already exercises the real resolve path) and removes the race at its root.
+function neverSettles<T>(): Promise<T> {
+  // biome-ignore lint/suspicious/noEmptyBlockStatements: deliberately never resolves; see comment above.
+  return new Promise(() => {});
+}
+
 function stubActions() {
   const respond = vi.fn(() => Promise.resolve({ ok: true }));
   _setAgentActionsForTests({
-    agentHistory: () => Promise.resolve([] as AgentEvent[]),
+    agentHistory: () => neverSettles(),
     attachAgent: () =>
       Promise.resolve(
         (async function* () {
@@ -22,15 +36,7 @@ function stubActions() {
           await new Promise(() => {});
         })()
       ),
-    getAgentConfig: () =>
-      Promise.resolve({
-        config: {
-          driverId: "claude-code" as const,
-          tier: "accept-edits" as const,
-        },
-        hasConversation: false,
-        turnActive: false,
-      }),
+    getAgentConfig: () => neverSettles(),
     interruptAgent: () => Promise.resolve({ ok: true as const }),
     respondAgentPermission: respond,
     sendAgentMessage: () => Promise.resolve({ accepted: true }),
@@ -42,6 +48,7 @@ function stubActions() {
 function seedSession(overrides: {
   activeTurnId?: string | null;
   hasConversation?: boolean;
+  items?: ConversationItem[];
   pendingPermission?: boolean;
 }) {
   const conversation = emptyConversation();
@@ -58,6 +65,9 @@ function seedSession(overrides: {
       },
     ];
   }
+  if (overrides.items) {
+    conversation.items = overrides.items;
+  }
   useAgentStore.setState({
     sessions: {
       [WT]: {
@@ -71,6 +81,14 @@ function seedSession(overrides: {
 }
 
 afterEach(() => {
+  // @testing-library/react's own auto-cleanup afterEach is registered lazily
+  // (on first render(), not on import), which puts it *after* this hook in
+  // registration order — so without an explicit call here, reset() below
+  // fires against a still-mounted, still-subscribed AgentTab and React logs
+  // an act() warning for a component about to be torn down anyway. Calling
+  // cleanup() first makes the unmount (and its close() effect cleanup)
+  // deterministic before store teardown runs.
+  cleanup();
   useAgentStore.getState().reset();
 });
 
@@ -102,5 +120,26 @@ describe("AgentTab", () => {
     seedSession({ hasConversation: true });
     render(<AgentTab branchLabel="feat-a" worktreePath={WT} />);
     expect(screen.getByLabelText(AGENT_BACKEND_LABEL)).toBeDisabled();
+  });
+
+  test("cost line stays on the last assistant reply after a new user message", () => {
+    stubActions();
+    seedSession({
+      hasConversation: true,
+      items: [
+        {
+          costUsd: 0.37,
+          id: "turn-t0",
+          kind: "assistant",
+          stopReason: "completed",
+          text: "done",
+          thinking: "",
+          usage: null,
+        },
+        { id: "i1", kind: "user", text: "next" },
+      ],
+    });
+    render(<AgentTab branchLabel="feat-a" worktreePath={WT} />);
+    expect(screen.getByText("≈ $0.37")).toBeInTheDocument();
   });
 });
