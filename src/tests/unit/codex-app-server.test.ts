@@ -1,6 +1,34 @@
 import { PassThrough } from "node:stream";
 import { describe, expect, test } from "vitest";
-import { CodexAppServer, type ChildStdio } from "@/ipc/codex/app-server";
+import {
+  buildCodexSpawnOptions,
+  type ChildStdio,
+  CodexAppServer,
+} from "@/ipc/codex/app-server";
+
+describe("buildCodexSpawnOptions", () => {
+  test("strips git redirection variables from the spawn env, same as the claude spawn", () => {
+    // Injected, not process.env: an inherited GIT_DIR would retarget every
+    // git operation codex performs at the wrong repository — the exact A2
+    // bug the claude spawn already strips (src/ipc/claude/options.ts).
+    const options = buildCodexSpawnOptions({
+      GIT_DIR: "/somewhere/.git",
+      GIT_INDEX_FILE: "/x",
+      GIT_PREFIX: "sub/",
+      GIT_WORK_TREE: "/somewhere",
+      HOME: "/Users/me",
+      PATH: "/usr/bin",
+    });
+    expect(options.env?.GIT_DIR).toBeUndefined();
+    expect(options.env?.GIT_WORK_TREE).toBeUndefined();
+    expect(options.env?.GIT_INDEX_FILE).toBeUndefined();
+    expect(options.env?.GIT_PREFIX).toBeUndefined();
+    expect(options.env?.HOME).toBe("/Users/me");
+    expect(options.env?.PATH).toBe("/usr/bin");
+    expect(options.detached).toBe(true);
+    expect(options.stdio).toEqual(["pipe", "pipe", "pipe"]);
+  });
+});
 
 /** An in-memory fake codex child speaking JSONL on the same duplex pair. */
 function fakeChild() {

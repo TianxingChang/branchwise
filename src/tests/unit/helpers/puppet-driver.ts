@@ -2,7 +2,19 @@ import type { AgentDriver, StartTurnInput } from "@/ipc/agent/driver";
 import type { AgentEvent } from "@/types/agent";
 
 /** A driver whose event stream the test hand-feeds. */
-export function puppetDriver(id: "claude-code" | "codex" = "claude-code") {
+export function puppetDriver(
+  id: "claude-code" | "codex" = "claude-code",
+  options: {
+    /**
+     * A wedged-but-alive child: interrupt() acks (its promise resolves,
+     * same as a real vendor's turn/interrupt RPC completing) but the event
+     * stream never yields another event and never ends — simulating a
+     * child that never sends turn/completed. Exercises the manager's
+     * bounded grace/force-close, not the driver's own cooperative path.
+     */
+    wedgeInterrupt?: boolean;
+  } = {}
+) {
   let push: ((event: AgentEvent | null) => void) | null = null;
   let raise: ((error: Error) => void) | null = null;
   let lastInput: StartTurnInput | null = null;
@@ -47,6 +59,11 @@ export function puppetDriver(id: "claude-code" | "codex" = "claude-code") {
           }
         })(),
         interrupt: () => {
+          if (options.wedgeInterrupt) {
+            // Ack, and nothing else: the child accepted the interrupt
+            // request but the stream never yields another event.
+            return Promise.resolve();
+          }
           push?.({
             costUsd: null,
             kind: "turn-done",

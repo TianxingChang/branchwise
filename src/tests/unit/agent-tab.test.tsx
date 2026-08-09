@@ -7,6 +7,7 @@ import { _setAgentActionsForTests, useAgentStore } from "@/stores/agent-store";
 
 const WT = "/wt/feat-a";
 const APPROVE_BUTTON_NAME = /approve/i;
+const DENY_BUTTON_NAME = /deny/i;
 const INTERRUPT_BUTTON_NAME = /interrupt/i;
 const AGENT_BACKEND_LABEL = /agent backend/i;
 
@@ -100,6 +101,18 @@ describe("AgentTab", () => {
     fireEvent.click(screen.getByRole("button", { name: APPROVE_BUTTON_NAME }));
     expect(respond).toHaveBeenCalledWith({
       approved: true,
+      requestId: "r1",
+      worktreePath: WT,
+    });
+  });
+
+  test("permission card deny calls respond with approved:false", () => {
+    const { respond } = stubActions();
+    seedSession({ activeTurnId: "t1", pendingPermission: true });
+    render(<AgentTab branchLabel="feat-a" worktreePath={WT} />);
+    fireEvent.click(screen.getByRole("button", { name: DENY_BUTTON_NAME }));
+    expect(respond).toHaveBeenCalledWith({
+      approved: false,
       requestId: "r1",
       worktreePath: WT,
     });

@@ -1,5 +1,6 @@
-import { spawn } from "node:child_process";
+import { type SpawnOptionsWithStdioTuple, spawn } from "node:child_process";
 import { AgentDriverError } from "@/ipc/agent/driver";
+import { sanitizedEnvironment } from "@/ipc/agent/env";
 
 export interface ChildStdio {
   kill: (signal?: NodeJS.Signals) => void;
@@ -9,12 +10,35 @@ export interface ChildStdio {
   stdout: NodeJS.ReadableStream;
 }
 
+type CodexSpawnOptions = SpawnOptionsWithStdioTuple<"pipe", "pipe", "pipe">;
+
+/**
+ * Pure so the spawn contract is unit-testable without touching a real
+ * process or mutating global env: detached mode, stdio wiring and the
+ * sanitized env are decided here and nowhere else. Same sanitized env as
+ * the claude spawn: an inherited GIT_DIR would retarget every git operation
+ * codex performs at the wrong repository regardless of cwd. The explicit
+ * stdio-tuple type (rather than the general SpawnOptions) keeps `spawn`'s
+ * return narrowed to non-null stdin/stdout, which ChildStdio below relies
+ * on.
+ */
+export function buildCodexSpawnOptions(
+  env: NodeJS.ProcessEnv = process.env
+): CodexSpawnOptions {
+  return {
+    detached: true,
+    env: sanitizedEnvironment(env),
+    stdio: ["pipe", "pipe", "pipe"],
+  };
+}
+
 export function spawnCodexAppServer(executable: string): ChildStdio {
   // Its own process group so quit-time cleanup can kill the whole tree.
-  const child = spawn(executable, ["app-server", "--stdio"], {
-    detached: true,
-    stdio: ["pipe", "pipe", "pipe"],
-  });
+  const child = spawn(
+    executable,
+    ["app-server", "--stdio"],
+    buildCodexSpawnOptions()
+  );
   return {
     kill: (signal) => {
       if (child.pid !== undefined) {

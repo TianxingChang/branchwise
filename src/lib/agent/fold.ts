@@ -160,7 +160,19 @@ export function foldEvent(
       // Every turn ends with a committed marker item, even when the model
       // produced no prose: it is the one place cost, usage and the stop
       // reason live (a tool-only turn would otherwise drop them all).
-      const done = withItem(state, {
+      // No permission survives its turn: a deny-path resolution can land
+      // after the terminal event in the transcript (crash, interrupt), and
+      // a reload trimmed to this turn-done would otherwise rebuild a ghost
+      // pending card nothing can clear. Encode the manager's invariant here.
+      const swept: ConversationState = {
+        ...state,
+        items: state.items.map((item) =>
+          item.kind === "permission" && item.state === "pending"
+            ? { ...item, state: "denied" }
+            : item
+        ),
+      };
+      const done = withItem(swept, {
         costUsd: event.costUsd,
         id: `turn-${event.turnId}`,
         kind: "assistant",

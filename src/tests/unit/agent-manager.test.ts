@@ -15,6 +15,7 @@ import {
   setConfig,
   shutdownAgents,
 } from "@/ipc/agent/manager";
+import { loadRegistry } from "@/ipc/agent/registry";
 import type { AgentEvent } from "@/types/agent";
 import { puppetDriver } from "./helpers/puppet-driver";
 
@@ -52,22 +53,38 @@ async function pull(
 }
 
 /**
- * Pumps the fake clock in many small steps rather than one big jump.
+ * Pumps the fake clock in small cumulative steps until `condition` holds,
+ * rather than spending one fixed budget.
  *
- * The manager's event loop awaits a real transcript fs write between driver
- * events (so history stays ordered), and `vi.advanceTimersByTimeAsync`
- * reliably drains a *pending* timer but gives no guarantee about how many
- * real-I/O round trips complete inside a single call when nothing is due
- * yet. Repeating small steps gives that chain many more chances to settle
- * than one large one — the same trick `pull()` above already relies on by
- * looping its own advance call once per expected event.
+ * The manager's event loop awaits a real transcript (or registry) fs write
+ * between driver events (so history stays ordered), and
+ * `vi.advanceTimersByTimeAsync` reliably drains a *pending* timer but gives
+ * no guarantee about how many real-I/O round trips complete inside a single
+ * call when nothing is due yet — the same trick `pull()` above already
+ * relies on by looping its own advance call once per expected event. A
+ * fixed round count previously used here could return control to a test
+ * (and then to afterEach, which nulls baseDir) before a real fs write
+ * settled, producing an unhandled rejection from the next baseDir() call
+ * deep inside the now-stale write — the exact flake this polls away.
+ * roundsCap bounds the loop so a genuinely wrong condition still fails
+ * fast, with a clear message, instead of hanging the suite.
  */
-async function settle(rounds = 40): Promise<void> {
-  for (let i = 0; i < rounds; i += 1) {
-    // Sequential by nature: each pump must land before the next, advancing
-    // the fake clock in small cumulative steps rather than one big jump.
+async function settleUntil(
+  condition: () => boolean | Promise<boolean>,
+  roundsCap = 200
+): Promise<void> {
+  for (let i = 0; i < roundsCap; i += 1) {
+    // Sequential by nature: each check must land before the next advance.
     // biome-ignore lint/performance/noAwaitInLoops: see above
+    if (await condition()) {
+      return;
+    }
     await vi.advanceTimersByTimeAsync(10);
+  }
+  if (!(await condition())) {
+    throw new Error(
+      `settleUntil: condition still false after ${roundsCap} rounds (${roundsCap * 10}ms of fake time)`
+    );
   }
 }
 
@@ -145,7 +162,11 @@ describe("agent session manager", () => {
     await send(WT, "hi");
     puppet.feed({ kind: "turn-started", turnId: "t1" });
     puppet.feed({ kind: "text-delta", text: "stream" });
-    await settle();
+    // The replay buffer below is in-memory, but it is only populated after
+    // the same transcript fs write settleUntil() polls for (see emit()).
+    await settleUntil(async () =>
+      (await readHistory(WT)).some((e) => e.kind === "text-delta")
+    );
 
     const first = attachAgent(WT);
     expect(first.replay.map((e) => e.kind)).toEqual([
@@ -199,8 +220,15 @@ describe("agent session manager", () => {
     // Both permission events must reach the transcript — the UI's approval
     // card and its resolution render from these, for both vendors. A single
     // advance is not reliable here: each event's transcript write is real
-    // fs I/O (see settle()'s doc comment).
-    await settle();
+    // fs I/O (see settleUntil()'s doc comment). permission-resolved is
+    // always chained after permission-request on this worktree's serial
+    // emit chain, so polling for the former guarantees the latter already
+    // landed.
+    await settleUntil(async () =>
+      (await readHistory(WT)).some(
+        (e) => e.kind === "permission-resolved" && e.requestId === "r1"
+      )
+    );
     const history = await readHistory(WT);
     expect(
       history.some(
@@ -248,7 +276,11 @@ describe("agent session manager", () => {
     expect(verdict).toBe(false);
     // Drain the timeout's permission-resolved emit (real fs I/O) before the
     // test ends, so it cannot resolve after afterEach() nulls out baseDir.
-    await settle();
+    await settleUntil(async () =>
+      (await readHistory(WT)).some(
+        (e) => e.kind === "permission-resolved" && e.requestId === "r2"
+      )
+    );
     puppet.end();
   });
 
@@ -262,11 +294,116 @@ describe("agent session manager", () => {
     await send(WT, "long task");
     puppet.feed({ kind: "turn-started", turnId: "t1" });
     await interruptTurn(WT);
-    await settle();
+    await settleUntil(async () =>
+      (await readHistory(WT)).some(
+        (e) => e.kind === "turn-done" && e.stopReason === "interrupted"
+      )
+    );
     const history = await readHistory(WT);
     expect(history.at(-1)).toMatchObject({
       kind: "turn-done",
       stopReason: "interrupted",
+    });
+  });
+
+  // --- Final-review finding: interrupt authority cannot depend on the
+  // vendor cooperating. A wedged-but-alive codex child can ack
+  // turn/interrupt (handle.interrupt() resolves) and then never send
+  // turn/completed — without a bound, the drain waits forever and the
+  // worktree's slot is stuck until app restart.
+  test("a wedged turn that acks interrupt but never completes force-closes after the grace period", async () => {
+    const puppet = puppetDriver("claude-code", { wedgeInterrupt: true });
+    configureManager({
+      baseDir: base,
+      drivers: { "claude-code": puppet.driver },
+    });
+    await setConfig(WT, { driverId: "claude-code", tier: "accept-edits" });
+    await send(WT, "long task");
+    puppet.feed({ kind: "turn-started", turnId: "t1" });
+
+    await interruptTurn(WT);
+    // The ack resolved, but the wedged stream never yields turn-done: the
+    // slot must still read occupied until the grace period elapses.
+    expect((await send(WT, "too soon")).accepted).toBe(false);
+
+    // Cross the grace boundary, then poll (a bigger cap than settleUntil's
+    // default: 3s of fake time to cross INTERRUPT_GRACE_MS, plus room for
+    // the forced turn-done's real transcript write to land).
+    await settleUntil(
+      async () =>
+        (await readHistory(WT)).some(
+          (e) => e.kind === "turn-done" && e.turnId === "forced"
+        ),
+      400
+    );
+
+    const history = await readHistory(WT);
+    expect(history.at(-1)).toMatchObject({
+      kind: "turn-done",
+      stopReason: "interrupted",
+      turnId: "forced",
+    });
+
+    // The slot is free: a second send is accepted rather than refused.
+    const second = await send(WT, "back to work");
+    expect(second.accepted).toBe(true);
+    puppet.feed({
+      costUsd: null,
+      kind: "turn-done",
+      stopReason: "completed",
+      turnId: "t2",
+      usage: null,
+    });
+    puppet.end();
+  });
+
+  // --- A late real terminal event, arriving after the grace already forced
+  // the turn closed, must not resurrect or duplicate anything: the pump's
+  // `live !== turn` superseded guard is what absorbs it.
+  test("a real turn-done that lands after the grace already fired is absorbed, not duplicated", async () => {
+    const puppet = puppetDriver("claude-code", { wedgeInterrupt: true });
+    configureManager({
+      baseDir: base,
+      drivers: { "claude-code": puppet.driver },
+    });
+    await setConfig(WT, { driverId: "claude-code", tier: "accept-edits" });
+    await send(WT, "long task");
+    puppet.feed({ kind: "turn-started", turnId: "t1" });
+
+    await interruptTurn(WT);
+    await settleUntil(
+      async () =>
+        (await readHistory(WT)).some(
+          (e) => e.kind === "turn-done" && e.turnId === "forced"
+        ),
+      400
+    );
+
+    // The original turn's stream finally does terminate for real, well
+    // after the grace already forced it closed and no second send() has
+    // replaced the puppet's push/raise closures yet — this reaches the
+    // original (now-superseded) generator directly.
+    puppet.feed({
+      costUsd: null,
+      kind: "turn-done",
+      stopReason: "completed",
+      turnId: "t1",
+      usage: null,
+    });
+    puppet.end();
+    // Give the (superseded) pump every chance to wrongly process this —
+    // if the `live !== turn` guard were broken, this would append a second
+    // turn-done here.
+    for (let i = 0; i < 20; i += 1) {
+      // biome-ignore lint/performance/noAwaitInLoops: draining, see settleUntil above
+      await vi.advanceTimersByTimeAsync(10);
+    }
+
+    const history = await readHistory(WT);
+    expect(history.filter((e) => e.kind === "turn-done")).toHaveLength(1);
+    expect(history.at(-1)).toMatchObject({
+      kind: "turn-done",
+      turnId: "forced",
     });
   });
 
@@ -287,7 +424,15 @@ describe("agent session manager", () => {
       usage: null,
     });
     puppet.end();
-    await settle();
+    // The second send() below reads sessionId back through loadRegistry —
+    // poll the registry file itself (a separate fs write chain from the
+    // transcript's) rather than a fixed budget, so a slow persistIds()
+    // write under load cannot leave the second send() reading a stale
+    // (still-null) sessionId.
+    await settleUntil(
+      async () =>
+        (await loadRegistry(base)).worktrees[WT]?.sessionId === "sess-42"
+    );
 
     _resetManagerForTests();
     configureManager({
@@ -367,7 +512,11 @@ describe("agent session manager", () => {
     expect(verdict).toBe(false);
     // Drain the denial's permission-resolved emit (real fs I/O) before the
     // test ends, so it cannot resolve after afterEach() nulls out baseDir.
-    await settle();
+    await settleUntil(async () =>
+      (await readHistory(WT)).some(
+        (e) => e.kind === "permission-resolved" && e.requestId === "r3"
+      )
+    );
   });
 
   test("shutdownAgents denies any still-parked permission instead of waiting out the timeout", async () => {
@@ -402,7 +551,11 @@ describe("agent session manager", () => {
     expect(verdict).toBe(false);
     // Drain the denial's permission-resolved emit (real fs I/O) before the
     // test ends, so it cannot resolve after afterEach() nulls out baseDir.
-    await settle();
+    await settleUntil(async () =>
+      (await readHistory(WT)).some(
+        (e) => e.kind === "permission-resolved" && e.requestId === "r4"
+      )
+    );
   });
 
   // --- Review finding 2: send() had no synchronous latch, so two sends
@@ -504,7 +657,18 @@ describe("agent session manager", () => {
     expect(verdict).toBeNull();
 
     puppet.crash(new Error("driver exploded"));
-    await settle();
+    // permission-resolved is chained after the crash path's turn-done on
+    // this worktree's serial emit chain (both queue through enqueueEmit, in
+    // that order — see manager.ts's stream-error catch/finally), so polling
+    // for it guarantees both land before the assertions below read history.
+    // A fixed round budget flaked here under full-suite load: it could
+    // return before the pump's catch/finally settled, racing afterEach's
+    // baseDir reset against an in-flight transcript write.
+    await settleUntil(async () =>
+      (await readHistory(WT)).some(
+        (e) => e.kind === "permission-resolved" && e.requestId === "r5"
+      )
+    );
     expect(verdict).toBe(false);
 
     // The crash's turn-done and the denial's permission-resolved both land —

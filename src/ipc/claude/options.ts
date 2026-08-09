@@ -1,26 +1,5 @@
+import { sanitizedEnvironment as sharedSanitizedEnvironment } from "@/ipc/agent/env";
 import type { PermissionTier } from "@/types/agent";
-
-const STRIPPED_ENV = [
-  "GIT_DIR",
-  "GIT_WORK_TREE",
-  "GIT_INDEX_FILE",
-  "GIT_PREFIX",
-];
-
-/**
- * The inherited environment minus git redirection. A GIT_DIR leaking in from
- * whatever spawned branchwise would make every agent operate on the wrong
- * repository regardless of cwd — the A2 correctness bug in env form.
- */
-export function sanitizedEnvironment(
-  env: NodeJS.ProcessEnv = process.env
-): NodeJS.ProcessEnv {
-  const clean: NodeJS.ProcessEnv = { ...env };
-  for (const key of STRIPPED_ENV) {
-    delete clean[key];
-  }
-  return clean;
-}
 
 const TIER_TO_MODE: Record<PermissionTier, string> = {
   "accept-edits": "acceptEdits",
@@ -28,6 +7,19 @@ const TIER_TO_MODE: Record<PermissionTier, string> = {
   plan: "plan",
   yolo: "bypassPermissions",
 };
+
+/**
+ * Delegates to the shared implementation in @/ipc/agent/env (also used by
+ * the codex spawn, so both vendors strip the exact same git redirection
+ * variables). Kept as a real exported function here, not a re-export: this
+ * module's existing consumers and tests import `sanitizedEnvironment` from
+ * `@/ipc/claude/options` and keep working unchanged.
+ */
+export function sanitizedEnvironment(
+  env: NodeJS.ProcessEnv = process.env
+): NodeJS.ProcessEnv {
+  return sharedSanitizedEnvironment(env);
+}
 
 export type CanUseToolShim = (
   toolName: string,

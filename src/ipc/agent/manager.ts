@@ -7,6 +7,7 @@ import { appendTranscript, readTranscript } from "./transcript";
 
 const FLUSH_MS = 50;
 const PERMISSION_TIMEOUT_MS = 5 * 60 * 1000;
+const INTERRUPT_GRACE_MS = 3000;
 
 interface ActiveTurn {
   flushed: AgentEvent[]; // replay buffer for late attachers, this turn only
@@ -410,7 +411,12 @@ export async function send(
       }
       denyPendingPermissions(worktreePath);
     }
-  })();
+  })().catch(() => undefined);
+  // The catch above guards the pump itself: if the catch/finally blocks
+  // above throw (e.g. a transcript write racing test teardown, or emit
+  // failing after the stream already failed), the async IIFE's returned
+  // promise would otherwise reject with nothing attached to observe it —
+  // an unhandled rejection that can crash an unrelated later test.
 
   return { accepted: true };
 }
@@ -474,10 +480,37 @@ export function detachAgent(
 }
 
 export async function interruptTurn(worktreePath: string): Promise<void> {
-  await turns.get(worktreePath)?.handle.interrupt();
+  const turn = turns.get(worktreePath);
+  await turn?.handle.interrupt();
   // Also covers a turn that already died (e.g. a driver crash) leaving a
-  // permission parked with no active turn left to answer it.
+  // permission parked with no active turn left to answer it, and gives a
+  // cooperating driver's denial the same immediacy it always had — the
+  // pump's own `finally` (below) would also reach here eventually, but only
+  // after that turn's terminal event finishes its real transcript write.
   denyPendingPermissions(worktreePath);
+
+  if (!turn) {
+    return;
+  }
+  // Interrupt authority cannot depend on the vendor cooperating: a wedged
+  // codex child can ack turn/interrupt and never send turn/completed, which
+  // would occupy this worktree's slot until app restart. Bounded grace,
+  // then force-close; the pump's `live !== turn` superseded guard absorbs
+  // any late real terminal event that shows up after this fires.
+  setTimeout(() => {
+    if (turns.get(worktreePath) !== turn) {
+      return;
+    }
+    turns.delete(worktreePath);
+    enqueueEmit(worktreePath, {
+      costUsd: null,
+      kind: "turn-done",
+      stopReason: "interrupted",
+      turnId: "forced",
+      usage: null,
+    }).catch(() => undefined);
+    denyPendingPermissions(worktreePath);
+  }, INTERRUPT_GRACE_MS);
 }
 
 export function respondPermission(

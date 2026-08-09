@@ -96,6 +96,32 @@ describe("foldEvent", () => {
     });
   });
 
+  test("a permission still pending at turn-done is swept to denied", () => {
+    // Deny-path permission-resolved events can land after the terminal event
+    // in the transcript (crash, interrupt). A reload trimmed to this
+    // turn-done must not rebuild a ghost pending card nothing can clear.
+    const state = foldAll([
+      { kind: "turn-started", turnId: "t1" },
+      {
+        detail: "src/a.ts",
+        kind: "permission-request",
+        requestId: "r1",
+        toolName: "Write",
+      },
+      {
+        costUsd: null,
+        kind: "turn-done",
+        stopReason: "completed",
+        turnId: "t1",
+        usage: null,
+      },
+    ]);
+    expect(state.items).toMatchObject([
+      { kind: "permission", requestId: "r1", state: "denied" },
+      { kind: "assistant", stopReason: "completed" },
+    ]);
+  });
+
   test("error event becomes a notice item", () => {
     const state = foldAll([{ kind: "error", message: "spawn failed" }]);
     expect(state.items[0]).toMatchObject({
