@@ -316,13 +316,7 @@ function PanelBody({
   tab: PanelTab;
 }) {
   if (tab === "agent") {
-    return (
-      <AgentTab
-        branchLabel={label}
-        nodeId={node.id}
-        projectFolder={projectFolder}
-      />
-    );
+    return <AgentTab branchLabel={label} worktreePath={node.id} />;
   }
 
   if (tab === "file") {

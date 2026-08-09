@@ -1,33 +1,36 @@
-import { ArrowUp, Sparkles } from "lucide-react";
+import { ArrowUp, Sparkles, Square } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
+import {
+  NoticeCard,
+  PermissionCard,
+  ToolCard,
+} from "@/components/panel/agent-cards";
+import AgentConfigBar from "@/components/panel/agent-config-bar";
 import type { ConversationItem } from "@/lib/agent/fold";
 import { selectSession, useAgentStore } from "@/stores/agent-store";
+import type { AgentConfig, AgentUsage } from "@/types/agent";
 
 interface AgentTabProps {
   branchLabel: string;
-  nodeId: string;
-  projectFolder: string;
+  worktreePath: string;
 }
 
-/**
- * Interim rendering on top of the real store (Task 11): items map to plain
- * rows and there is no config bar, tool/permission cards, or interrupt
- * control yet — Task 12 rebuilds this on the same store shape with the full
- * card set.
- */
-export default function AgentTab({ branchLabel, nodeId }: AgentTabProps) {
-  const session = useAgentStore((state) => selectSession(state, nodeId));
+export default function AgentTab({ branchLabel, worktreePath }: AgentTabProps) {
+  const session = useAgentStore((state) => selectSession(state, worktreePath));
   const open = useAgentStore((state) => state.open);
   const close = useAgentStore((state) => state.close);
   const sendMessage = useAgentStore((state) => state.sendMessage);
+  const interrupt = useAgentStore((state) => state.interrupt);
+  const respond = useAgentStore((state) => state.respond);
+  const configure = useAgentStore((state) => state.configure);
 
   const [draft, setDraft] = useState("");
   const scrollRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    open(nodeId);
-    return () => close(nodeId);
-  }, [close, nodeId, open]);
+    open(worktreePath);
+    return () => close(worktreePath);
+  }, [close, open, worktreePath]);
 
   const { conversation } = session;
   const running = conversation.activeTurnId !== null;
@@ -47,9 +50,9 @@ export default function AgentTab({ branchLabel, nodeId }: AgentTabProps) {
     if (draft.trim().length === 0 || running) {
       return;
     }
-    sendMessage(nodeId, draft);
+    sendMessage(worktreePath, draft);
     setDraft("");
-  }, [draft, nodeId, running, sendMessage]);
+  }, [draft, running, sendMessage, worktreePath]);
 
   const handleChange = useCallback(
     (event: React.ChangeEvent<HTMLTextAreaElement>) => {
@@ -68,7 +71,26 @@ export default function AgentTab({ branchLabel, nodeId }: AgentTabProps) {
     [submit]
   );
 
+  const handleInterrupt = useCallback(() => {
+    interrupt(worktreePath);
+  }, [interrupt, worktreePath]);
+
+  const handleRespond = useCallback(
+    (requestId: string, approved: boolean) => {
+      respond(worktreePath, requestId, approved);
+    },
+    [respond, worktreePath]
+  );
+
+  const handleConfigChange = useCallback(
+    (config: AgentConfig) => {
+      configure(worktreePath, config);
+    },
+    [configure, worktreePath]
+  );
+
   const hasContent = conversation.items.length > 0 || running;
+  const lastIndex = conversation.items.length - 1;
 
   return (
     <div className="flex h-full flex-col">
@@ -78,18 +100,30 @@ export default function AgentTab({ branchLabel, nodeId }: AgentTabProps) {
       >
         {hasContent ? null : <EmptyConversation />}
 
-        {conversation.items.map((item) => (
-          <ConversationItemRow item={item} key={item.id} />
+        {conversation.items.map((item, index) => (
+          <ConversationItemRow
+            item={item}
+            key={item.id}
+            onRespond={handleRespond}
+            showCost={index === lastIndex}
+          />
         ))}
 
-        {conversation.streamingText ? (
-          <AssistantText text={conversation.streamingText} />
-        ) : null}
-
-        {running && !conversation.streamingText ? (
-          <p className="pl-6 text-[12.5px] text-bw-muted">Thinking…</p>
+        {running ? (
+          <StreamingMessage
+            text={conversation.streamingText}
+            thinking={conversation.streamingThinking}
+          />
         ) : null}
       </div>
+
+      {session.config ? (
+        <AgentConfigBar
+          config={session.config}
+          hasConversation={session.hasConversation}
+          onChange={handleConfigChange}
+        />
+      ) : null}
 
       <div className="border-bw-hairline border-t p-3">
         <div className="flex items-end gap-2 rounded-xl border border-bw-hairline bg-bw-canvas/60 py-2 pr-2 pl-3 focus-within:border-bw-edge">
@@ -102,6 +136,16 @@ export default function AgentTab({ branchLabel, nodeId }: AgentTabProps) {
             rows={1}
             value={draft}
           />
+          {running ? (
+            <button
+              className="flex shrink-0 items-center gap-1 rounded-full border border-bw-hairline px-2.5 py-1 text-[11px] text-bw-muted transition-colors hover:border-bw-edge hover:text-bw-ink"
+              onClick={handleInterrupt}
+              type="button"
+            >
+              <Square size={10} strokeWidth={2.5} />
+              Interrupt
+            </button>
+          ) : null}
           <button
             aria-label="Send message"
             className="flex size-7 shrink-0 items-center justify-center rounded-full bg-bw-ink text-white transition-opacity disabled:opacity-25"
@@ -140,11 +184,66 @@ function AssistantText({ text }: { text: string }) {
   );
 }
 
-function ConversationItemRow({ item }: { item: ConversationItem }) {
+function ThinkingDetails({ text }: { text: string }) {
+  return (
+    <details className="pl-6 text-[11px] text-bw-muted">
+      <summary className="cursor-pointer select-none">thinking</summary>
+      <p className="mt-1 whitespace-pre-wrap leading-relaxed">{text}</p>
+    </details>
+  );
+}
+
+/** Live turn: an empty streamingText keeps the "Thinking…" affordance up until
+ * the first delta arrives, then the same block switches to real text. */
+function StreamingMessage({
+  text,
+  thinking,
+}: {
+  text: string;
+  thinking: string;
+}) {
+  return (
+    <div className="flex flex-col gap-1">
+      {text ? (
+        <AssistantText text={text} />
+      ) : (
+        <p className="pl-6 text-[12.5px] text-bw-muted">Thinking…</p>
+      )}
+      {thinking ? <ThinkingDetails text={thinking} /> : null}
+    </div>
+  );
+}
+
+/** "≈" doubles as the estimate label the brief asks for. */
+function formatCost(costUsd: number, usage: AgentUsage | null): string {
+  const amount = `≈ $${costUsd.toFixed(2)}`;
+  if (!usage || (usage.inputTokens === null && usage.outputTokens === null)) {
+    return amount;
+  }
+  const inTokens =
+    usage.inputTokens === null ? "?" : formatTokenCount(usage.inputTokens);
+  const outTokens =
+    usage.outputTokens === null ? "?" : formatTokenCount(usage.outputTokens);
+  return `${amount} · ${inTokens} in / ${outTokens} out`;
+}
+
+function formatTokenCount(count: number): string {
+  return count >= 1000 ? `${(count / 1000).toFixed(1)}k` : `${count}`;
+}
+
+function ConversationItemRow({
+  item,
+  onRespond,
+  showCost,
+}: {
+  item: ConversationItem;
+  onRespond: (requestId: string, approved: boolean) => void;
+  showCost: boolean;
+}) {
   if (item.kind === "user") {
     return (
       <div className="flex justify-end">
-        <p className="max-w-[85%] rounded-xl bg-bw-subtle px-3 py-2 text-[12.5px] text-bw-ink leading-relaxed">
+        <p className="max-w-[85%] whitespace-pre-wrap rounded-xl bg-bw-subtle px-3 py-2 text-[12.5px] text-bw-ink leading-relaxed">
           {item.text}
         </p>
       </div>
@@ -152,26 +251,26 @@ function ConversationItemRow({ item }: { item: ConversationItem }) {
   }
 
   if (item.kind === "assistant") {
-    return <AssistantText text={item.text} />;
+    return (
+      <div className="flex flex-col gap-1">
+        <AssistantText text={item.text} />
+        {item.thinking ? <ThinkingDetails text={item.thinking} /> : null}
+        {showCost && item.costUsd !== null ? (
+          <p className="pl-6 text-[10.5px] text-bw-muted">
+            {formatCost(item.costUsd, item.usage)}
+          </p>
+        ) : null}
+      </div>
+    );
   }
 
   if (item.kind === "tool") {
-    return (
-      <p className="pl-5 text-[12px] text-bw-muted leading-relaxed">
-        {item.name} — {item.state}: {item.detail}
-      </p>
-    );
+    return <ToolCard item={item} />;
   }
 
   if (item.kind === "permission") {
-    return (
-      <p className="pl-5 text-[12px] text-bw-muted leading-relaxed">
-        {item.toolName} wants to run "{item.detail}" — {item.state}
-      </p>
-    );
+    return <PermissionCard item={item} onRespond={onRespond} />;
   }
 
-  return (
-    <p className="text-[12.5px] text-bw-pending leading-relaxed">{item.text}</p>
-  );
+  return <NoticeCard item={item} />;
 }
