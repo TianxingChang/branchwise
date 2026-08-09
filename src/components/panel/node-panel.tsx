@@ -3,6 +3,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { worktreeStatus } from "@/actions/repo";
 import { branchLabel } from "@/components/canvas/branch-node";
 import AgentTab from "@/components/panel/agent-tab";
+import ArtifactTab from "@/components/panel/artifact-tab";
 import FileTab from "@/components/panel/file-tab";
 import PlaceholderTab from "@/components/panel/placeholder-tab";
 import TerminalTab from "@/components/panel/terminal-tab";
@@ -20,6 +21,7 @@ import { cn } from "@/utils/tailwind";
 
 const TAB_LABELS: Record<PanelTab, string> = {
   agent: "Agent",
+  artifact: "Artifact",
   diff: "Diff",
   file: "File",
   terminal: "Terminal",
@@ -333,6 +335,12 @@ function PanelBody({
     // Keyed by worktree so switching nodes gets its own shell rather than
     // re-pointing this one.
     return <TerminalTab key={node.id} node={node} />;
+  }
+
+  if (tab === "artifact") {
+    // Deliberately not keyed by worktree: the shelf is the project's, and the
+    // note you were writing should not vanish because you clicked a node.
+    return <ArtifactTab projectFolder={projectFolder} />;
   }
 
   return <PlaceholderTab branchName={label} tab={tab} />;

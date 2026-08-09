@@ -1433,10 +1433,13 @@ hover-revealed control, tablist semantics on the panel tabs, and honour prefers-
 durations, not just the pulsing dots.`
 },
 {
-  id:'C3', lane:'C', slug:'scope-the-panel', size:'S', status:'decide', week:[5,5],
+  id:'C3', lane:'C', slug:'scope-the-panel', size:'S', status:'done', week:[5,5],
   title:'Cut three of the five panel tabs',
   one:'The panel does two things well instead of five things badly.',
-  why:`View, Terminal and File are an editor, and the user already has one. Terminal in particular is the
+  why:`RESOLVED 2026-08-09, the other way: the user kept filling the tabs in — File and Terminal landed first,
+  then View (a per-worktree WebContentsView preview, ported from Dotwise-canvas's browser) and an Artifact
+  tab. The cut never happened; the argument below stays as the record of what was traded away.
+  Original case: View, Terminal and File are an editor, and the user already has one. Terminal in particular is the
   biggest trap on the list — pty management, scrollback, shell integration, xterm performance — while
   "open in Terminal" is one line of code for ninety percent of the value.`,
   demo:'The panel offers Agent and Diff; a button opens the worktree in the user\'s editor and another in Terminal.',
@@ -1535,6 +1538,36 @@ filter chips that dim rather than remove; within-rank wrapping when a rank excee
 node labels with a title attribute and dir="auto"; and onlyRenderVisibleElements set to true. Also reduce
 rankSep so a fourth rank fits at zoom 1 in the default window. Report the fitView zoom for a 20-sibling tree
 before and after.`
+},
+{
+  id:'C7', lane:'C', slug:'artifact-shelf', size:'M', status:'done', week:[5,5],
+  title:'An Artifact tab: notes and canvases that live with the project',
+  one:'A sixth panel tab, right of File, holding what you write about the work — not what the repo says.',
+  why:`Landed 2026-08-09 on the user's ask, borrowing Dotwise-canvas's document architecture at branchwise's
+  weight class: tiptap (already a dependency) edits notes as markdown, npm tldraw 5.3 (the same generation
+  Dotwise-canvas vendors) edits canvases as .tldr snapshots, and both autosave through a ported 350ms
+  debounced save queue. Storage is deliberately index-free — .branchwise/artifacts/ where the file name is
+  the title, the extension is the kind and mtime is the freshness — because an index file is one more thing
+  for two windows, a parallel session or a hand edit to corrupt. The shelf is project-scoped and the tab is
+  unkeyed by node, so the note survives clicking around the canvas.`,
+  demo:'Artifact tab → + Note, type — Note.md appears under .branchwise/artifacts. + Canvas, draw — Canvas.tldr. Rename and delete from the row.',
+  accept:[
+    'PANEL_TABS gains "artifact" after "file"; old graph.json files still parse (the enum only grew).',
+    'Create resolves Finder-style free names with an O_EXCL write, so two windows can never clobber.',
+    'Rename flushes the open editor first; delete discards its queue — no resurrection by a late autosave.',
+    'tldraw is lazy-loaded (the startup bundle stays ~1.28MB, the canvas chunk arrives on first open) and its fonts ship via @tldraw/assets rather than the CDN.',
+    '29 unit/integration tests on naming, save queue and handlers; 4 e2e tests drive the packaged app to files on disk.'
+  ],
+  watch:[
+    'A graph.json whose panel.tab says "artifact" resets to the seed doc under an older build — annotations included. Acceptable pre-1.0, worth a migration note if F5 lands versioned parsing.',
+    'No watcher on the shelf directory yet: external edits show up on next open, not live. S7\'s watcher could cover it if that ever grates.',
+    'tldraw shows its watermark without a license key — a decision to buy or keep, not an accident.',
+    'Whether .branchwise/artifacts is committed rides the open ".branchwise in git" decision above.'
+  ],
+  deps:[], soft:['C3'],
+  prompt:`Follow-ups, not a rebuild: wire the files watcher onto .branchwise/artifacts so the shelf follows
+external edits; consider per-node filtering (a "pinned to branch" flag in front matter) only if real use
+asks for it; and revisit the tldraw license line before any public release.`
 },
 
 /* ── RELEASE ────────────────────────────────────────────────────────────── */
@@ -1735,9 +1768,9 @@ const ADR = [
 {d:'Nodes are never freely draggable.', s:'settled',
  why:'Positions carry no information, so there is no user intent to preserve. Every canvas that allows both auto-layout and manual positioning grows a re-layout button people are afraid to press.',
  cost:'None. Drag-to-reparent is editing the model, not the view, and must feel categorically different.'},
-{d:'The panel ships with two tabs; View, Terminal and File are cut.', s:'open',
- why:'They are an editor, and the user has one. Open-in-editor and open-in-Terminal are one line each for most of the value.',
- cost:'Trivial now, and it removes five placeholder surfaces from every subsequent design conversation.'},
+{d:'The panel ships with two tabs; View, Terminal and File are cut.', s:'reverse',
+ why:'Use decided otherwise: File, Terminal, View and an Artifact shelf all landed and earn their place. The original case — "they are an editor, and the user has one" — read the panel as a viewer; it turned out to be the workspace.',
+ cost:'The traded-away simplicity is real: five live surfaces now appear in every design conversation, and C3 keeps the packaging caveats that came with them.'},
 {d:'Agent transcripts are persisted — to application support, never the repo.', s:'settled',
  why:'Reverses the README’s current line, correctly: not persisting is right for mock data and fatal for real. A tool that loses your transcripts on quit is deleted in week one.',
  cost:'Low. The repo file stays provenance-only.'},

@@ -6,6 +6,7 @@ export const PANEL_TABS = [
   "terminal",
   "diff",
   "file",
+  "artifact",
 ] as const;
 export type PanelTab = (typeof PANEL_TABS)[number];
 

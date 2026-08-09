@@ -7,7 +7,7 @@ interface Placeholder {
   title: string;
 }
 
-type PlaceholderTabName = Exclude<PanelTab, "agent" | "file" | "terminal">;
+type PlaceholderTabName = Exclude<PanelTab, "agent" | "artifact" | "file" | "terminal">;
 
 const PLACEHOLDERS: Record<PlaceholderTabName, Placeholder> = {
   diff: {
@@ -27,7 +27,7 @@ export default function PlaceholderTab({
   tab,
 }: {
   branchName: string;
-  tab: Exclude<PanelTab, "agent" | "file" | "terminal">;
+  tab: Exclude<PanelTab, "agent" | "artifact" | "file" | "terminal">;
 }) {
   const placeholder = PLACEHOLDERS[tab];
   const Icon = placeholder.icon;
