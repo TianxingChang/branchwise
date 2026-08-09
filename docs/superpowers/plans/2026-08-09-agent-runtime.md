@@ -2103,6 +2103,48 @@ describe("CodexAppServer", () => {
     send({ id: start?.id, result: {} });
     await pending;
   });
+
+  test("a handler returning undefined passes the request to the next one", async () => {
+    const { child, received, send } = fakeChild();
+    const client = new CodexAppServer(() => child);
+    client.onRequest(() => undefined);
+    client.onRequest(() => ({ decision: "accept" }));
+    const pending = client.request("thread/start", {});
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    send({ id: 77, method: "item/fileChange/requestApproval", params: {} });
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    const reply = received.find((m) => m.id === 77 && "result" in m);
+    expect(reply?.result).toEqual({ decision: "accept" });
+    const start = received.find((m) => m.method === "thread/start");
+    send({ id: start?.id, result: {} });
+    await pending;
+  });
+
+  test("requests dispatch only after same-chunk responses have settled", async () => {
+    const { child, received } = fakeChild();
+    const client = new CodexAppServer(() => child);
+    let settled = false;
+    const pending = client.request("thread/start", {}).then((result) => {
+      settled = true;
+      return result;
+    });
+    const seenSettled: boolean[] = [];
+    client.onRequest(() => {
+      seenSettled.push(settled);
+      return { decision: "decline" };
+    });
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    const start = received.find((m) => m.method === "thread/start");
+    // One chunk: our response immediately followed by a server request.
+    (child.stdout as PassThrough).write(
+      `${JSON.stringify({ id: start?.id, result: { threadId: "th_1" } })}\n${JSON.stringify(
+        { id: 88, method: "item/permissions/requestApproval", params: {} }
+      )}\n`
+    );
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    await pending;
+    expect(seenSettled).toEqual([true]);
+  });
 });
 ```
 
@@ -2207,6 +2249,7 @@ export class CodexAppServer {
   private readonly requestHandlers = new Set<
     (method: string, params: unknown) => Promise<unknown> | unknown
   >();
+  private readonly exitHandlers = new Set<() => void>();
 
   constructor(spawnChild: () => ChildStdio) {
     this.spawnChild = spawnChild;
@@ -2226,6 +2269,16 @@ export class CodexAppServer {
   ): () => void {
     this.requestHandlers.add(handler);
     return () => this.requestHandlers.delete(handler);
+  }
+
+  /**
+   * Fires when the live child exits, after pending requests were rejected.
+   * Turns awaiting notifications (not requests) need this to learn the
+   * process died — otherwise a mid-turn crash suspends them forever.
+   */
+  onChildExit(handler: () => void): () => void {
+    this.exitHandlers.add(handler);
+    return () => this.exitHandlers.delete(handler);
   }
 
   async request(method: string, params: unknown): Promise<unknown> {
@@ -2283,6 +2336,9 @@ export class CodexAppServer {
       this.handshake = null;
       this.child = null;
       this.buffer = "";
+      for (const handler of this.exitHandlers) {
+        handler();
+      }
     });
 
     this.handshake = (async () => {
@@ -2361,29 +2417,17 @@ export class CodexAppServer {
         }
         return;
       }
-      // Server→client request: first handler that answers wins. A handler
-      // that throws synchronously must become an error reply, not an
-      // exception escaping the stream's data listener.
-      const handler = [...this.requestHandlers][0];
-      let outcome: Promise<unknown>;
-      try {
-        outcome = Promise.resolve(
-          handler ? handler(message.method, message.params) : undefined
-        );
-      } catch (error) {
-        outcome = Promise.reject(error);
-      }
-      outcome
-        .then((result) => this.send({ id: message.id as number, result }))
-        .catch((error: unknown) =>
-          this.send({
-            error: {
-              code: -32_000,
-              message: error instanceof Error ? error.message : "failed",
-            },
-            id: message.id as number,
-          })
-        );
+      // Server→client request. Deferred one microtask so responses in the
+      // same stdout chunk settle first (a thread/start reply and that
+      // thread's first approval can share a chunk — the awaiter must see
+      // its threadId before the approval dispatches). Handlers are tried in
+      // registration order; the first to answer non-undefined claims the
+      // request (concurrent turns each pass on requests that aren't
+      // theirs). A synchronous throw becomes an error reply. Unclaimed
+      // requests get an error reply rather than an invented decision.
+      queueMicrotask(() => {
+        void this.dispatchRequest(message);
+      });
       return;
     }
 
@@ -2405,6 +2449,34 @@ export class CodexAppServer {
       return;
     }
     entry.resolve(message.result);
+  }
+
+  private async dispatchRequest(message: Record<string, unknown>): Promise<void> {
+    const id = message.id as number;
+    const method = message.method as string;
+    try {
+      for (const handler of [...this.requestHandlers]) {
+        // Sequential on purpose: registration order is the claim order.
+        // biome-ignore lint/performance/noAwaitInLoops: see above
+        const result = await handler(method, message.params);
+        if (result !== undefined) {
+          this.send({ id, result });
+          return;
+        }
+      }
+      this.send({
+        error: { code: -32_001, message: `no handler claimed ${method}` },
+        id,
+      });
+    } catch (error) {
+      this.send({
+        error: {
+          code: -32_000,
+          message: error instanceof Error ? error.message : "failed",
+        },
+        id,
+      });
+    }
   }
 }
 ```
@@ -2557,7 +2629,8 @@ function rec(value: unknown): Rec | null {
   return value !== null && typeof value === "object" ? (value as Rec) : null;
 }
 
-function clip(value: unknown): string {
+/** Exported: the adapter clips approval-request details through this too. */
+export function clip(value: unknown): string {
   if (typeof value !== "string") {
     return "";
   }
@@ -2709,13 +2782,29 @@ import { createCodexDriver } from "@/ipc/codex/adapter";
 import type { StartTurnInput } from "@/ipc/agent/driver";
 import type { AgentEvent } from "@/types/agent";
 
-function scriptedChild(options: { withApproval: boolean }) {
+function scriptedChild(options: {
+  withApproval: boolean;
+  delayTurnAck?: boolean;
+  killAfterTurnStart?: boolean;
+}) {
   const stdin = new PassThrough();
   const stdout = new PassThrough();
   const received: Record<string, unknown>[] = [];
+  const exitCallbacks: (() => void)[] = [];
+  let releaseAck: (() => void) | null = null;
   let buffer = "";
   function send(message: Record<string, unknown>): void {
     stdout.write(`${JSON.stringify(message)}\n`);
+  }
+  function finishTurn(): void {
+    send({
+      method: "item/agentMessage/delta",
+      params: { delta: "done", threadId: "th_9" },
+    });
+    send({
+      method: "turn/completed",
+      params: { threadId: "th_9", turn: { status: "completed" } },
+    });
   }
   stdin.on("data", (chunk: Buffer) => {
     buffer += chunk.toString("utf8");
@@ -2736,7 +2825,19 @@ function scriptedChild(options: { withApproval: boolean }) {
         send({ id: message.id, result: { threadId: "th_9" } });
       }
       if (message.method === "turn/start") {
-        send({ id: message.id, result: { turnId: "turn_9" } });
+        const ack = () => send({ id: message.id, result: { turnId: "turn_9" } });
+        if (options.delayTurnAck) {
+          releaseAck = ack;
+          continue;
+        }
+        ack();
+        if (options.killAfterTurnStart) {
+          // Die without ever completing the turn.
+          for (const cb of exitCallbacks) {
+            cb();
+          }
+          continue;
+        }
         if (options.withApproval) {
           // Ask for approval before doing anything else; the wire round-trip
           // is what's under test, not the decision's effect.
@@ -2751,28 +2852,31 @@ function scriptedChild(options: { withApproval: boolean }) {
             },
           });
         }
-        send({
-          method: "item/agentMessage/delta",
-          params: { delta: "done", threadId: "th_9" },
-        });
-        send({
-          method: "turn/completed",
-          params: { threadId: "th_9", turn: { status: "completed" } },
-        });
+        finishTurn();
       }
       if (message.method === "turn/interrupt") {
         send({ id: message.id, result: {} });
+        finishTurn();
       }
     }
   });
   const child: ChildStdio = {
-    kill: () => {},
-    onExit: () => {},
+    kill: () => {
+      for (const cb of exitCallbacks) {
+        cb();
+      }
+    },
+    onExit: (cb) => exitCallbacks.push(cb),
     pid: 1,
     stdin,
     stdout,
   };
-  return { child, received };
+  return {
+    child,
+    received,
+    releaseTurnAck: () => releaseAck?.(),
+    send,
+  };
 }
 
 function baseInput(overrides: Partial<StartTurnInput> = {}): StartTurnInput {
@@ -2869,6 +2973,46 @@ describe("codex adapter", () => {
     expect(events.some((e) => e.kind === "error")).toBe(true);
     expect(events.at(-1)).toMatchObject({ kind: "turn-done", stopReason: "error" });
   });
+
+  test("a codex crash mid-turn closes the turn instead of hanging", async () => {
+    const { child } = scriptedChild({
+      killAfterTurnStart: true,
+      withApproval: false,
+    });
+    const driver = createCodexDriver({
+      client: new CodexAppServer(() => child),
+    });
+    const events = await drain(driver.startTurn(baseInput()).events);
+    expect(events.some((e) => e.kind === "error")).toBe(true);
+    expect(events.at(-1)).toMatchObject({
+      kind: "turn-done",
+      stopReason: "error",
+    });
+  });
+
+  test("an interrupt before the turn ack is delivered after it", async () => {
+    const { child, received, releaseTurnAck } = scriptedChild({
+      delayTurnAck: true,
+      withApproval: false,
+    });
+    const driver = createCodexDriver({
+      client: new CodexAppServer(() => child),
+    });
+    const handle = driver.startTurn(baseInput());
+    const drained = drain(handle.events);
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    await handle.interrupt(); // the ack has not returned yet — must not be lost
+    releaseTurnAck();
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    const interruptMessage = received.find(
+      (m) => m.method === "turn/interrupt"
+    );
+    expect(interruptMessage?.params).toMatchObject({
+      threadId: "th_9",
+      turnId: "turn_9",
+    });
+    await drained;
+  });
 });
 ```
 
@@ -2888,7 +3032,7 @@ import type {
 import type { AgentEvent, PermissionTier } from "@/types/agent";
 import { CodexAppServer, spawnCodexAppServer } from "./app-server";
 import { resolveCodexExecutable } from "./executable";
-import { mapCodexNotification } from "./map-events";
+import { clip, mapCodexNotification } from "./map-events";
 
 const APPROVAL_METHODS = new Set([
   "item/commandExecution/requestApproval",
@@ -2982,19 +3126,15 @@ export function createCodexDriver(dependencies?: {
 
       const offRequest = server.onRequest(async (method, params) => {
         if (!APPROVAL_METHODS.has(method)) {
-          return { decision: "decline" };
+          return; // not ours — let another handler claim it
         }
         const p = rec(params) ?? {};
         if (typeof p.threadId === "string" && p.threadId !== liveThreadId) {
-          return { decision: "decline" };
+          return; // another turn's thread — its handler claims it
         }
         const requestId = String(p.itemId ?? p.approvalId ?? p.call_id ?? randomUUID());
         const detail =
-          typeof p.command === "string"
-            ? p.command
-            : typeof p.reason === "string"
-              ? p.reason
-              : method;
+          clip(p.command) || clip(p.path) || clip(p.reason) || method;
         push({ detail, kind: "permission-request", requestId, toolName: method });
         const approved = await input.requestPermission({
           detail,
@@ -3003,6 +3143,19 @@ export function createCodexDriver(dependencies?: {
         });
         push({ approved, kind: "permission-resolved", requestId });
         return { decision: approved ? "accept" : "decline" };
+      });
+
+      const offExit = server.onChildExit(() => {
+        // The process died mid-turn: close the turn or the consumer waits
+        // forever on a wake that never comes.
+        push({ kind: "error", message: "codex exited mid-turn." });
+        push({
+          costUsd: null,
+          kind: "turn-done",
+          stopReason: "error",
+          turnId,
+          usage: null,
+        });
       });
 
       const offNotification = server.onNotification((method, params) => {
@@ -3055,6 +3208,16 @@ export function createCodexDriver(dependencies?: {
         );
         liveTurnId =
           typeof turnStarted?.turnId === "string" ? turnStarted.turnId : null;
+        if (interrupted && liveThreadId && liveTurnId) {
+          // Interrupt arrived while the ack was in flight: deliver it now
+          // instead of silently dropping it.
+          void server
+            .request("turn/interrupt", {
+              threadId: liveThreadId,
+              turnId: liveTurnId,
+            })
+            .catch(() => {});
+        }
 
         while (!finished) {
           const next = queue.shift();
@@ -3088,6 +3251,7 @@ export function createCodexDriver(dependencies?: {
       } finally {
         offNotification();
         offRequest();
+        offExit();
       }
     }
 
