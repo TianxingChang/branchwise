@@ -20,26 +20,39 @@ async function fakeBinary(name: string): Promise<string> {
 }
 
 describe("resolveClaudeExecutable", () => {
+  // systemCandidates is [] throughout: the default brew paths are real
+  // machine state these tests must not depend on.
   test("CLAUDE_BIN override wins when it exists", async () => {
     const bin = await fakeBinary("claude");
     expect(
-      await resolveClaudeExecutable({ CLAUDE_BIN: bin, HOME: base, PATH: "" })
+      await resolveClaudeExecutable(
+        { CLAUDE_BIN: bin, HOME: base, PATH: "" },
+        []
+      )
     ).toBe(bin);
   });
 
   test("a CLAUDE_BIN pointing nowhere is ignored, PATH is searched", async () => {
     const bin = await fakeBinary("claude");
-    const resolved = await resolveClaudeExecutable({
-      CLAUDE_BIN: path.join(base, "missing"),
-      HOME: base,
-      PATH: base,
-    });
+    const resolved = await resolveClaudeExecutable(
+      { CLAUDE_BIN: path.join(base, "missing"), HOME: base, PATH: base },
+      []
+    );
     expect(resolved).toBe(bin);
+  });
+
+  test("an injected system candidate beats PATH", async () => {
+    const system = await fakeBinary("claude");
+    const resolved = await resolveClaudeExecutable(
+      { HOME: path.join(base, "nohome"), PATH: "" },
+      [system]
+    );
+    expect(resolved).toBe(system);
   });
 
   test("returns null when nothing is installed", async () => {
     expect(
-      await resolveClaudeExecutable({ HOME: base, PATH: base })
+      await resolveClaudeExecutable({ HOME: base, PATH: base }, [])
     ).toBeNull();
   });
 });
