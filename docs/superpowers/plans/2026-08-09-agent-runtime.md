@@ -438,7 +438,19 @@ export function foldEvent(
       // Every turn ends with a committed marker item, even when the model
       // produced no prose: it is the one place cost, usage and the stop
       // reason live (a tool-only turn would otherwise drop them all).
-      const done = withItem(state, {
+      // No permission survives its turn: a deny-path resolution can land
+      // after the terminal event in the transcript (crash, interrupt), and
+      // a reload trimmed to this turn-done would otherwise rebuild a ghost
+      // pending card nothing can clear. Encode the manager's invariant here.
+      const swept: ConversationState = {
+        ...state,
+        items: state.items.map((item) =>
+          item.kind === "permission" && item.state === "pending"
+            ? { ...item, state: "denied" }
+            : item
+        ),
+      };
+      const done = withItem(swept, {
         costUsd: event.costUsd,
         id: `turn-${event.turnId}`,
         kind: "assistant",
@@ -2201,8 +2213,11 @@ export interface ChildStdio {
 
 export function spawnCodexAppServer(executable: string): ChildStdio {
   // Its own process group so quit-time cleanup can kill the whole tree.
+  // Same sanitized env as the claude spawn: an inherited GIT_DIR would
+  // retarget every git operation codex performs at the wrong repository.
   const child = spawn(executable, ["app-server", "--stdio"], {
     detached: true,
+    env: sanitizedEnvironment(),
     stdio: ["pipe", "pipe", "pipe"],
   });
   return {
@@ -4175,8 +4190,33 @@ export function detachAgent(
   queue.close();
 }
 
+const INTERRUPT_GRACE_MS = 3000;
+
 export async function interruptTurn(worktreePath: string): Promise<void> {
-  await turns.get(worktreePath)?.handle.interrupt();
+  const turn = turns.get(worktreePath);
+  if (!turn) {
+    return;
+  }
+  await turn.handle.interrupt();
+  // Interrupt authority cannot depend on the vendor cooperating: a wedged
+  // codex child can ack turn/interrupt and never complete the turn, which
+  // would occupy this worktree's slot until app restart. Bounded grace,
+  // then force-close; the pump's superseded guard absorbs any late real
+  // terminal event.
+  setTimeout(() => {
+    if (turns.get(worktreePath) !== turn) {
+      return;
+    }
+    turns.delete(worktreePath);
+    void enqueueEmit(worktreePath, {
+      costUsd: null,
+      kind: "turn-done",
+      stopReason: "interrupted",
+      turnId: "forced",
+      usage: null,
+    }).catch(() => undefined);
+    denyPendingPermissions(worktreePath);
+  }, INTERRUPT_GRACE_MS);
 }
 
 export function respondPermission(
