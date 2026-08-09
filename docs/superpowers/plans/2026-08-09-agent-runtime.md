@@ -2937,7 +2937,7 @@ describe("codex adapter", () => {
       client: new CodexAppServer(() => child),
     });
     const asked: string[] = [];
-    await drain(
+    const events = await drain(
       driver.startTurn(
         baseInput({
           requestPermission: (request) => {
@@ -2950,6 +2950,14 @@ describe("codex adapter", () => {
     expect(asked).toEqual(["rm -rf build"]);
     const reply = received.find((m) => m.id === 77 && "result" in m);
     expect(reply?.result).toEqual({ decision: "decline" });
+    // The manager owns permission events; the adapter stream must not
+    // duplicate them.
+    expect(
+      events.some(
+        (e) =>
+          e.kind === "permission-request" || e.kind === "permission-resolved"
+      )
+    ).toBe(false);
   });
 
   test("yolo tier maps to danger-full-access + never", async () => {
@@ -3143,13 +3151,14 @@ export function createCodexDriver(dependencies?: {
         const requestId = String(p.itemId ?? p.approvalId ?? p.call_id ?? randomUUID());
         const detail =
           clip(p.command) || clip(p.path) || clip(p.reason) || method;
-        push({ detail, kind: "permission-request", requestId, toolName: method });
+        // The manager emits the permission-request / permission-resolved
+        // events for every vendor — pushing them here too would render each
+        // approval card twice.
         const approved = await input.requestPermission({
           detail,
           requestId,
           toolName: method,
         });
-        push({ approved, kind: "permission-resolved", requestId });
         return { decision: approved ? "accept" : "decline" };
       });
 
@@ -3596,6 +3605,22 @@ describe("agent session manager", () => {
     expect(respondPermission(WT, "r1", true)).toBe(true);
     await vi.advanceTimersByTimeAsync(10);
     expect(verdict).toBe(true);
+    // Both permission events must reach the transcript — the UI's approval
+    // card and its resolution render from these, for both vendors.
+    const history = await readHistory(WT);
+    expect(
+      history.some(
+        (e) => e.kind === "permission-request" && e.requestId === "r1"
+      )
+    ).toBe(true);
+    expect(
+      history.some(
+        (e) =>
+          e.kind === "permission-resolved" &&
+          e.requestId === "r1" &&
+          e.approved === true
+      )
+    ).toBe(true);
     puppet.feed({
       costUsd: null,
       kind: "turn-done",
@@ -4008,11 +4033,30 @@ export async function send(
           const forWorktree =
             pendingPermissions.get(worktreePath) ?? new Map();
           pendingPermissions.set(worktreePath, forWorktree);
+          // The manager owns the permission EVENTS for both vendors: the
+          // Claude SDK's callback cannot yield into its adapter's stream at
+          // all, and every settle path (answer, timeout, interrupt, crash)
+          // funnels through here — so this is the one place the request and
+          // its resolution reliably reach the transcript and the UI.
+          void enqueueEmit(worktreePath, {
+            detail: request.detail,
+            kind: "permission-request",
+            requestId: request.requestId,
+            toolName: request.toolName,
+          });
+          const settle = (approved: boolean) => {
+            resolve(approved);
+            void enqueueEmit(worktreePath, {
+              approved,
+              kind: "permission-resolved",
+              requestId: request.requestId,
+            });
+          };
           const timer = setTimeout(() => {
             forWorktree.delete(request.requestId);
-            resolve(false);
+            settle(false);
           }, PERMISSION_TIMEOUT_MS);
-          forWorktree.set(request.requestId, { resolve, timer });
+          forWorktree.set(request.requestId, { resolve: settle, timer });
         }),
       resume,
       tier: config.tier,
