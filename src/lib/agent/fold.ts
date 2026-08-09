@@ -5,8 +5,8 @@ export type ConversationItem =
   | {
       costUsd: number | null;
       id: string;
-      interrupted: boolean;
       kind: "assistant";
+      stopReason: "completed" | "interrupted" | "error";
       text: string;
       thinking: string;
       usage: AgentUsage | null;
@@ -157,20 +157,20 @@ export function foldEvent(
 
     // biome-ignore lint/suspicious/noUnnecessaryConditions: Exhaustive union match
     case "turn-done": {
-      const flushed =
-        state.streamingText.length > 0 || state.streamingThinking.length > 0
-          ? withItem(state, {
-              costUsd: event.costUsd,
-              id: `turn-${event.turnId}`,
-              interrupted: event.stopReason === "interrupted",
-              kind: "assistant",
-              text: state.streamingText,
-              thinking: state.streamingThinking,
-              usage: event.usage,
-            })
-          : state;
+      // Every turn ends with a committed marker item, even when the model
+      // produced no prose: it is the one place cost, usage and the stop
+      // reason live (a tool-only turn would otherwise drop them all).
+      const done = withItem(state, {
+        costUsd: event.costUsd,
+        id: `turn-${event.turnId}`,
+        kind: "assistant",
+        stopReason: event.stopReason,
+        text: state.streamingText,
+        thinking: state.streamingThinking,
+        usage: event.usage,
+      });
       return {
-        ...flushed,
+        ...done,
         activeTurnId: null,
         streamingText: "",
         streamingThinking: "",

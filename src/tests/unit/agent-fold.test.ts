@@ -70,9 +70,30 @@ describe("foldEvent", () => {
     ]);
     expect(state.items.at(-1)).toMatchObject({
       kind: "assistant",
+      stopReason: "interrupted",
       text: "half a thou",
     });
-    expect(state.items.at(-1)).toHaveProperty("interrupted", true);
+  });
+
+  test("a tool-only turn still commits a turn marker carrying cost", () => {
+    const state = foldAll([
+      { kind: "turn-started", turnId: "t1" },
+      { detail: "npm test", kind: "tool-started", name: "Bash", toolId: "u1" },
+      { detail: "ok", kind: "tool-finished", ok: true, toolId: "u1" },
+      {
+        costUsd: 0.05,
+        kind: "turn-done",
+        stopReason: "completed",
+        turnId: "t1",
+        usage: null,
+      },
+    ]);
+    expect(state.items.at(-1)).toMatchObject({
+      costUsd: 0.05,
+      kind: "assistant",
+      stopReason: "completed",
+      text: "",
+    });
   });
 
   test("error event becomes a notice item", () => {
