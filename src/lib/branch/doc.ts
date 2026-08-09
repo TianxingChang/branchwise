@@ -22,7 +22,12 @@ function clampPanelWidth(width: number): number {
 export function createSeedDoc(): GraphDoc {
   return {
     branches: {},
-    panel: { collapsed: false, tab: "agent", width: DEFAULT_PANEL_WIDTH },
+    panel: {
+      collapsed: false,
+      posture: "peek",
+      tab: "agent",
+      width: DEFAULT_PANEL_WIDTH,
+    },
     selectedWorktree: null,
     version: GRAPH_DOC_VERSION,
   };
