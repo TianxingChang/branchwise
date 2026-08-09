@@ -70,32 +70,7 @@ export function createClaudeDriver(dependencies?: {
       }
     }
 
-    async function* streamEvents(
-      options: Record<string, unknown>
-    ): AsyncGenerator<AgentEvent> {
-      try {
-        const stream = factory
-          ? factory({ options, prompt: input.prompt })
-          : await defaultQueryFactory({ options, prompt: input.prompt });
-
-        for await (const message of stream) {
-          yield* processMessage(message);
-        }
-      } catch (error) {
-        if (!controller.signal.aborted) {
-          yield {
-            kind: "error",
-            message:
-              error instanceof Error ? error.message : "The Claude run failed.",
-          };
-          yield done("error");
-        }
-      }
-    }
-
-    async function* events(): AsyncGenerator<AgentEvent> {
-      yield { kind: "turn-started", turnId };
-
+    async function* streamMessages(): AsyncGenerator<AgentEvent> {
       const executable = await resolve();
       if (!executable) {
         yield { kind: "error", message: INSTALL_HINT };
@@ -112,7 +87,43 @@ export function createClaudeDriver(dependencies?: {
         worktreePath: input.worktreePath,
       });
 
-      yield* streamEvents(options);
+      const stream = factory
+        ? factory({ options, prompt: input.prompt })
+        : await defaultQueryFactory({ options, prompt: input.prompt });
+
+      for await (const message of stream) {
+        yield* processMessage(message);
+      }
+    }
+
+    function* handleError(
+      error: unknown
+    ): Generator<AgentEvent, void, unknown> {
+      if (!controller.signal.aborted) {
+        yield {
+          kind: "error",
+          message:
+            error instanceof Error ? error.message : "The Claude run failed.",
+        };
+        // A late failure after the result already closed the turn gets
+        // surfaced as noise only — never a second terminal event.
+        if (!sawResult) {
+          yield done("error");
+        }
+      }
+    }
+
+    async function* events(): AsyncGenerator<AgentEvent> {
+      yield { kind: "turn-started", turnId };
+
+      // Nothing in this generator may throw to the consumer: resolver
+      // rejections, options building and stream failures all become error
+      // events, and a turn emits exactly one terminal turn-done.
+      try {
+        yield* streamMessages();
+      } catch (error) {
+        yield* handleError(error);
+      }
 
       if (!sawResult) {
         yield done(controller.signal.aborted ? "interrupted" : "completed");

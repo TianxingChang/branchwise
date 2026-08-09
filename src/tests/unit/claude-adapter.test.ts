@@ -141,4 +141,33 @@ describe("claude adapter", () => {
       stopReason: "interrupted",
     });
   });
+
+  test("a rejecting executable resolver becomes an error event, not a throw", async () => {
+    const driver = createClaudeDriver({
+      queryFactory: () => {
+        throw new Error("must not be called");
+      },
+      resolveExecutable: () => Promise.reject(new Error("resolver exploded")),
+    });
+    const events = await drain(driver.startTurn(baseInput()).events);
+    expect(events.some((e) => e.kind === "error")).toBe(true);
+    expect(events.at(-1)).toMatchObject({
+      kind: "turn-done",
+      stopReason: "error",
+    });
+  });
+
+  test("a stream failure after the result never emits a second turn-done", async () => {
+    const driver = createClaudeDriver({
+      queryFactory: () =>
+        (async function* () {
+          yield { subtype: "success", total_cost_usd: 0.01, type: "result" };
+          throw new Error("cleanup failed");
+        })(),
+      resolveExecutable: () => Promise.resolve("/bin/claude"),
+    });
+    const events = await drain(driver.startTurn(baseInput()).events);
+    expect(events.filter((e) => e.kind === "turn-done")).toHaveLength(1);
+    expect(events.at(-1)?.kind).toBe("error");
+  });
 });
