@@ -1,0 +1,69 @@
+import { z } from "zod";
+
+/**
+ * What one changed file looks like after parsing `git diff` output. This is
+ * the model the renderer receives — patch text never crosses the IPC boundary.
+ */
+export const DIFF_LINE_KINDS = ["context", "add", "del"] as const;
+export type DiffLineKind = (typeof DIFF_LINE_KINDS)[number];
+
+export const diffLineSchema = z.object({
+  kind: z.enum(DIFF_LINE_KINDS),
+  /** Line number in the old file, null for added lines. */
+  oldNo: z.number().int().min(1).nullable(),
+  /** Line number in the new file, null for deleted lines. */
+  newNo: z.number().int().min(1).nullable(),
+  /** Line content without the leading marker character. */
+  text: z.string(),
+});
+
+export const diffHunkSchema = z.object({
+  /** The raw `@@ … @@` line, kept for the hunk header row. */
+  header: z.string(),
+  oldStart: z.number().int().min(0),
+  oldLines: z.number().int().min(0),
+  newStart: z.number().int().min(0),
+  newLines: z.number().int().min(0),
+  lines: z.array(diffLineSchema),
+});
+
+export const FILE_DIFF_KINDS = [
+  "modified",
+  "added",
+  "deleted",
+  "renamed",
+] as const;
+export type FileDiffKind = (typeof FILE_DIFF_KINDS)[number];
+
+export const fileDiffSchema = z.object({
+  /** New path — or the old path for a deleted file. */
+  path: z.string(),
+  /** Previous path when the file was renamed, otherwise null. */
+  oldPath: z.string().nullable(),
+  kind: z.enum(FILE_DIFF_KINDS),
+  /** Binary files have no hunks and no line counts. */
+  binary: z.boolean(),
+  additions: z.number().int().min(0),
+  deletions: z.number().int().min(0),
+  /** True when the worktree has uncommitted changes touching this path. */
+  dirty: z.boolean(),
+  hunks: z.array(diffHunkSchema),
+});
+
+export const worktreeDiffSchema = z.object({
+  /** The merge-base the diff was taken against, or "HEAD" for the root node. */
+  baseRef: z.string(),
+  files: z.array(fileDiffSchema),
+});
+
+export const diffSummarySchema = z.object({
+  files: z.number().int().min(0),
+  additions: z.number().int().min(0),
+  deletions: z.number().int().min(0),
+});
+
+export type DiffLine = z.infer<typeof diffLineSchema>;
+export type DiffHunk = z.infer<typeof diffHunkSchema>;
+export type FileDiff = z.infer<typeof fileDiffSchema>;
+export type WorktreeDiff = z.infer<typeof worktreeDiffSchema>;
+export type DiffSummary = z.infer<typeof diffSummarySchema>;
