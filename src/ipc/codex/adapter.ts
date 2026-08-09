@@ -123,8 +123,7 @@ export function createCodexDriver(dependencies?: {
 
     async function handleApprovalRequest(
       method: string,
-      params: unknown,
-      push: (e: AgentEvent) => void
+      params: unknown
     ): Promise<{ decision: "accept" | "decline" } | undefined> {
       if (!APPROVAL_METHODS.has(method)) {
         return; // not ours — let another handler claim it
@@ -137,13 +136,14 @@ export function createCodexDriver(dependencies?: {
         p.itemId ?? p.approvalId ?? p.call_id ?? randomUUID()
       );
       const detail = extractRequestDetail(p, method);
-      push({ detail, kind: "permission-request", requestId, toolName: method });
+      // The manager emits the permission-request / permission-resolved
+      // events for every vendor — pushing them here too would render each
+      // approval card twice.
       const approved = await input.requestPermission({
         detail,
         requestId,
         toolName: method,
       });
-      push({ approved, kind: "permission-resolved", requestId });
       return { decision: approved ? "accept" : "decline" };
     }
 
@@ -183,9 +183,7 @@ export function createCodexDriver(dependencies?: {
         wake = null;
       }
 
-      const offRequest = server.onRequest((method, params) =>
-        handleApprovalRequest(method, params, push)
-      );
+      const offRequest = server.onRequest(handleApprovalRequest);
 
       const offNotification = server.onNotification((method, params) => {
         if (!liveThreadId) {

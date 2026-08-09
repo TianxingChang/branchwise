@@ -319,11 +319,32 @@ export async function send(
         new Promise<boolean>((resolve) => {
           const forWorktree = pendingPermissions.get(worktreePath) ?? new Map();
           pendingPermissions.set(worktreePath, forWorktree);
+          // The manager owns the permission EVENTS for both vendors: the
+          // Claude SDK's callback cannot yield into its adapter's stream at
+          // all, and every settle path (answer, timeout, interrupt, crash)
+          // funnels through here — so this is the one place the request and
+          // its resolution reliably reach the transcript and the UI. Fire
+          // and forget with a catch: nothing here can `await` from inside a
+          // Promise executor or a timer callback.
+          enqueueEmit(worktreePath, {
+            detail: request.detail,
+            kind: "permission-request",
+            requestId: request.requestId,
+            toolName: request.toolName,
+          }).catch(() => undefined);
+          const settle = (approved: boolean): void => {
+            resolve(approved);
+            enqueueEmit(worktreePath, {
+              approved,
+              kind: "permission-resolved",
+              requestId: request.requestId,
+            }).catch(() => undefined);
+          };
           const timer = setTimeout(() => {
             forWorktree.delete(request.requestId);
-            resolve(false);
+            settle(false);
           }, PERMISSION_TIMEOUT_MS);
-          forWorktree.set(request.requestId, { resolve, timer });
+          forWorktree.set(request.requestId, { resolve: settle, timer });
         }),
       resume,
       tier: config.tier,

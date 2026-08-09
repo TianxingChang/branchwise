@@ -177,6 +177,10 @@ describe("agent session manager", () => {
     await send(WT, "run it");
 
     let verdict: boolean | null = null;
+    // tsc (strict null checks) reports TS2531 without this `?.`; puppet.input()
+    // is typed StartTurnInput | null and biome's cross-module inference
+    // disagrees with tsc here — trust tsc.
+    // biome-ignore lint/suspicious/noUnnecessaryConditions: see above
     puppet
       .input()
       ?.requestPermission({
@@ -192,6 +196,25 @@ describe("agent session manager", () => {
     expect(respondPermission(WT, "r1", true)).toBe(true);
     await vi.advanceTimersByTimeAsync(10);
     expect(verdict).toBe(true);
+    // Both permission events must reach the transcript — the UI's approval
+    // card and its resolution render from these, for both vendors. A single
+    // advance is not reliable here: each event's transcript write is real
+    // fs I/O (see settle()'s doc comment).
+    await settle();
+    const history = await readHistory(WT);
+    expect(
+      history.some(
+        (e) => e.kind === "permission-request" && e.requestId === "r1"
+      )
+    ).toBe(true);
+    expect(
+      history.some(
+        (e) =>
+          e.kind === "permission-resolved" &&
+          e.requestId === "r1" &&
+          e.approved === true
+      )
+    ).toBe(true);
     puppet.feed({
       costUsd: null,
       kind: "turn-done",
@@ -211,6 +234,10 @@ describe("agent session manager", () => {
     await setConfig(WT, { driverId: "claude-code", tier: "ask" });
     await send(WT, "run it");
     let verdict: boolean | null = null;
+    // tsc (strict null checks) reports TS2531 without this `?.`; puppet.input()
+    // is typed StartTurnInput | null and biome's cross-module inference
+    // disagrees with tsc here — trust tsc.
+    // biome-ignore lint/suspicious/noUnnecessaryConditions: see above
     puppet
       .input()
       ?.requestPermission({ detail: "x", requestId: "r2", toolName: "Bash" })
@@ -219,6 +246,9 @@ describe("agent session manager", () => {
       });
     await vi.advanceTimersByTimeAsync(5 * 60 * 1000 + 50);
     expect(verdict).toBe(false);
+    // Drain the timeout's permission-resolved emit (real fs I/O) before the
+    // test ends, so it cannot resolve after afterEach() nulls out baseDir.
+    await settle();
     puppet.end();
   });
 
@@ -315,6 +345,10 @@ describe("agent session manager", () => {
     await send(WT, "run it");
 
     let verdict: boolean | null = null;
+    // tsc (strict null checks) reports TS2531 without this `?.`; puppet.input()
+    // is typed StartTurnInput | null and biome's cross-module inference
+    // disagrees with tsc here — trust tsc.
+    // biome-ignore lint/suspicious/noUnnecessaryConditions: see above
     puppet
       .input()
       ?.requestPermission({
@@ -331,6 +365,9 @@ describe("agent session manager", () => {
     await interruptTurn(WT);
     await vi.advanceTimersByTimeAsync(10);
     expect(verdict).toBe(false);
+    // Drain the denial's permission-resolved emit (real fs I/O) before the
+    // test ends, so it cannot resolve after afterEach() nulls out baseDir.
+    await settle();
   });
 
   test("shutdownAgents denies any still-parked permission instead of waiting out the timeout", async () => {
@@ -343,6 +380,10 @@ describe("agent session manager", () => {
     await send(WT, "run it");
 
     let verdict: boolean | null = null;
+    // tsc (strict null checks) reports TS2531 without this `?.`; puppet.input()
+    // is typed StartTurnInput | null and biome's cross-module inference
+    // disagrees with tsc here — trust tsc.
+    // biome-ignore lint/suspicious/noUnnecessaryConditions: see above
     puppet
       .input()
       ?.requestPermission({
@@ -359,6 +400,9 @@ describe("agent session manager", () => {
     await shutdownAgents(0);
     await vi.advanceTimersByTimeAsync(10);
     expect(verdict).toBe(false);
+    // Drain the denial's permission-resolved emit (real fs I/O) before the
+    // test ends, so it cannot resolve after afterEach() nulls out baseDir.
+    await settle();
   });
 
   // --- Review finding 2: send() had no synchronous latch, so two sends
@@ -442,6 +486,10 @@ describe("agent session manager", () => {
     await send(WT, "run it");
 
     let verdict: boolean | null = null;
+    // tsc (strict null checks) reports TS2531 without this `?.`; puppet.input()
+    // is typed StartTurnInput | null and biome's cross-module inference
+    // disagrees with tsc here — trust tsc.
+    // biome-ignore lint/suspicious/noUnnecessaryConditions: see above
     puppet
       .input()
       ?.requestPermission({
@@ -459,10 +507,19 @@ describe("agent session manager", () => {
     await settle();
     expect(verdict).toBe(false);
 
+    // The crash's turn-done and the denial's permission-resolved both land —
+    // denyPendingPermissions now emits, so this is no longer the last event.
     const history = await readHistory(WT);
-    expect(history.at(-1)).toMatchObject({
-      kind: "turn-done",
-      stopReason: "error",
-    });
+    expect(
+      history.some((e) => e.kind === "turn-done" && e.stopReason === "error")
+    ).toBe(true);
+    expect(
+      history.some(
+        (e) =>
+          e.kind === "permission-resolved" &&
+          e.requestId === "r5" &&
+          e.approved === false
+      )
+    ).toBe(true);
   });
 });

@@ -161,7 +161,7 @@ describe("codex adapter", () => {
       client: new CodexAppServer(() => child),
     });
     const asked: string[] = [];
-    await drain(
+    const events = await drain(
       driver.startTurn(
         baseInput({
           requestPermission: (request) => {
@@ -174,6 +174,14 @@ describe("codex adapter", () => {
     expect(asked).toEqual(["rm -rf build"]);
     const reply = received.find((m) => m.id === 77 && "result" in m);
     expect(reply?.result).toEqual({ decision: "decline" });
+    // The manager owns permission events; the adapter stream must not
+    // duplicate them.
+    expect(
+      events.some(
+        (e) =>
+          e.kind === "permission-request" || e.kind === "permission-resolved"
+      )
+    ).toBe(false);
   });
 
   test("yolo tier maps to danger-full-access + never", async () => {
