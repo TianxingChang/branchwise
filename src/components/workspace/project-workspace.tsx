@@ -2,10 +2,25 @@ import { useCallback, useEffect, useState } from "react";
 import type { ProjectRef } from "@/actions/project";
 import { pruneWorktrees } from "@/actions/repo";
 import BranchCanvas from "@/components/canvas/branch-canvas";
-import BranchRail from "@/components/canvas/branch-rail";
 import NodePanel from "@/components/panel/node-panel";
+import { RAIL_WIDTH } from "@/lib/branch/constants";
 import { cyclePosture } from "@/lib/branch/posture";
 import { useRepoStore } from "@/stores/repo-store";
+import type { PanelState } from "@/types/branch";
+
+/**
+ * How much room the panel takes from the canvas: none while peeking, its own
+ * width while docked, everything but a narrow strip while full.
+ */
+function canvasInset(panelOpen: boolean, panel: PanelState): number | string {
+  if (!panelOpen || panel.posture === "peek") {
+    return 0;
+  }
+  if (panel.posture === "split") {
+    return panel.width;
+  }
+  return `calc(100% - ${RAIL_WIDTH}px)`;
+}
 
 /** True when the key event began inside something that types. */
 function fromEditable(event: KeyboardEvent): boolean {
@@ -77,32 +92,23 @@ export default function ProjectWorkspace({ project }: { project: ProjectRef }) {
   const selected =
     nodes.find((node) => node.id === panelDoc.selectedWorktree) ?? null;
   const panelOpen = selected !== null && !panelDoc.panel.collapsed;
-  const full = panelOpen && panelDoc.panel.posture === "full";
-  // Only the docked posture reserves canvas space: peek floats over it, and
-  // full replaces it with the rail.
-  const canvasRight =
-    panelOpen && panelDoc.panel.posture === "split" ? panelDoc.panel.width : 0;
+  // The canvas never leaves: peek floats over it, split reserves the panel's
+  // width, and full squeezes it to a narrow strip that still pans, zooms and
+  // switches nodes.
+  const canvasRight = canvasInset(panelOpen, panelDoc.panel);
 
   return (
     <div className="relative h-full w-full bg-bw-canvas">
-      {full ? (
-        <BranchRail
+      <div
+        className="absolute top-0 bottom-0 left-0"
+        style={{ right: canvasRight }}
+      >
+        <BranchCanvas
           nodes={nodes}
           projectFolder={project.path}
           selectedId={panelDoc.selectedWorktree}
         />
-      ) : (
-        <div
-          className="absolute top-0 bottom-0 left-0"
-          style={{ right: canvasRight }}
-        >
-          <BranchCanvas
-            nodes={nodes}
-            projectFolder={project.path}
-            selectedId={panelDoc.selectedWorktree}
-          />
-        </div>
-      )}
+      </div>
 
       {selected ? (
         <NodePanel

@@ -18,18 +18,39 @@ const SAFE_DIFF = ["--no-color", "--no-ext-diff", "--no-textconv", "-M"];
 /**
  * The ref this node's work is measured against: the merge-base with its
  * parent, so the parent moving ahead never leaks into the child's diff. A
- * node with no parent measures its worktree against its own HEAD.
+ * node with no parent measures its worktree against its own HEAD — and a
+ * repository with no commits yet has no HEAD to resolve, so it measures
+ * against the empty tree instead: everything staged reads as added.
  */
 async function resolveBase(repo: RepoInfo, input: DiffInput): Promise<string> {
-  if (!input.parentBranch) {
-    return "HEAD";
+  if (input.parentBranch) {
+    const base = await tryGit(
+      input.worktreePath,
+      ["merge-base", input.parentBranch, "HEAD"],
+      { queueKey: repo.root }
+    );
+    if (base?.trim()) {
+      return base.trim();
+    }
   }
-  const base = await tryGit(
+
+  const head = await tryGit(
     input.worktreePath,
-    ["merge-base", input.parentBranch, "HEAD"],
+    ["rev-parse", "--verify", "HEAD"],
     { queueKey: repo.root }
   );
-  return base?.trim() || "HEAD";
+  if (head) {
+    return "HEAD";
+  }
+
+  // Asking git for the id keeps this correct under sha256 repositories,
+  // where the well-known sha1 empty-tree constant would be wrong.
+  const emptyTree = await tryGit(
+    input.worktreePath,
+    ["hash-object", "-t", "tree", "/dev/null"],
+    { queueKey: repo.root }
+  );
+  return emptyTree?.trim() || "HEAD";
 }
 
 /**

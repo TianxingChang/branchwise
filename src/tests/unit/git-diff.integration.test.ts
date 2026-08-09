@@ -162,3 +162,44 @@ describe("worktreeDiffSummary", () => {
     expect(summary.deletions).toBe(1);
   });
 });
+
+describe("a repository with no commits yet", () => {
+  let unbornPath: string;
+  let unborn: RepoInfo;
+
+  beforeAll(async () => {
+    unbornPath = path.join(workspace, "unborn");
+    await run("git", [...GIT_ENV, "init", unbornPath]);
+    await writeFile(path.join(unbornPath, "staged.txt"), "hello\nworld\n");
+    await writeFile(path.join(unbornPath, "loose.txt"), "not added\n");
+    await git(unbornPath, "add", "staged.txt");
+
+    const resolved = await resolveRepo(unbornPath);
+    if (!resolved) {
+      throw new Error("unborn repo did not resolve");
+    }
+    unborn = resolved;
+  });
+
+  test("diffs against the empty tree instead of failing on HEAD", async () => {
+    const diff = await worktreeDiff(unborn, {
+      parentBranch: null,
+      worktreePath: unbornPath,
+    });
+
+    const staged = diff.files.find((file) => file.path === "staged.txt");
+    expect(staged?.kind).toBe("added");
+    expect(staged?.additions).toBe(2);
+    expect(diff.untracked).toContain("loose.txt");
+  });
+
+  test("summarises the unborn worktree without failing", async () => {
+    const summary = await worktreeDiffSummary(unborn, {
+      parentBranch: null,
+      worktreePath: unbornPath,
+    });
+
+    expect(summary.files).toBe(1);
+    expect(summary.additions).toBe(2);
+  });
+});
