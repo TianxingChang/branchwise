@@ -261,6 +261,31 @@ describe("the file watcher", () => {
     );
   }, 30_000);
 
+  test("still reports after every subscriber has come and gone", async () => {
+    // The panel unsubscribes whenever the File tab is switched away from. A
+    // fresh recursive watcher is blind for a moment after it starts, so the
+    // second subscriber has to inherit the first one's warm watcher rather
+    // than pay that window again.
+    const first = await collect(worktree);
+    expect(first.seen).toHaveLength(0);
+    for (const close of openQueues.splice(0)) {
+      close();
+    }
+
+    const { seen } = await collect(worktree);
+    const revisited = path.join(worktree, "src", "revisited.ts");
+    await writeFile(revisited, "export const revisited = true;\n");
+
+    await eventually(() =>
+      seen.some(
+        (change) =>
+          change.kind === "changed" && change.path === "src/revisited.ts"
+      )
+    );
+
+    await unlink(revisited);
+  }, 30_000);
+
   test("stays quiet about directories it never walked", async () => {
     const { seen } = await collect(worktree);
 

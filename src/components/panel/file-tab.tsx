@@ -9,11 +9,15 @@ import { isDirectoryTreePath } from "@/lib/files/scan-policy";
 import type { CanvasNode } from "@/types/branch";
 import type { FileContent } from "@/types/files";
 
-const MIN_TREE_WIDTH = 120;
+/**
+ * Narrow enough to give the file most of the panel, wide enough that the
+ * search field still reads as a search field rather than a sliver.
+ */
+const MIN_TREE_WIDTH = 160;
 const MIN_VIEWER_WIDTH = 160;
 // The panel starts at 420px wide, so the tree takes the smaller share and
 // leaves the file the room it needs. Both edges are draggable.
-const DEFAULT_TREE_WIDTH = 180;
+const DEFAULT_TREE_WIDTH = 200;
 
 /** Matches the panel's own surface so the shadow-rooted tree does not clash. */
 const SEARCH_ICON =
@@ -48,12 +52,23 @@ const TREE_CSS = `
     --trees-search-font-weight-override: 400;
   }
 
+  /*
+   * A flex item defaults to min-width:auto, so the field refuses to shrink
+   * below its own content — placeholder plus the icon's inset — and overflows
+   * the column instead of fitting it.
+   */
+  [data-file-tree-search-container] {
+    min-width: 0;
+  }
+
   [data-file-tree-search-input] {
     background-image: url("${SEARCH_ICON}");
-    background-repeat: no-repeat;
     background-position: 10px center;
+    background-repeat: no-repeat;
     background-size: 12px 12px;
+    min-width: 0;
     padding-inline-start: 28px;
+    text-overflow: ellipsis;
   }
 `;
 
@@ -82,6 +97,28 @@ function FileBrowser({ worktreePath }: { worktreePath: string }) {
   const [openPath, setOpenPath] = useState<string | null>(null);
   const [treeWidth, setTreeWidth] = useState(DEFAULT_TREE_WIDTH);
   const [error, setError] = useState<string | null>(null);
+  const splitRef = useRef<HTMLDivElement>(null);
+
+  // The panel itself is resizable, so the split has to give way when it
+  // narrows — otherwise the tree keeps the width it was dragged to and the
+  // file loses whatever is left.
+  useEffect(() => {
+    const element = splitRef.current;
+    if (!element) {
+      return;
+    }
+
+    const observer = new ResizeObserver(() => {
+      const largest = Math.max(
+        MIN_TREE_WIDTH,
+        element.clientWidth - MIN_VIEWER_WIDTH
+      );
+      setTreeWidth((current) => Math.min(current, largest));
+    });
+
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, []);
 
   useEffect(() => {
     let active = true;
@@ -119,7 +156,7 @@ function FileBrowser({ worktreePath }: { worktreePath: string }) {
   }, []);
 
   return (
-    <div className="flex h-full">
+    <div className="flex h-full" ref={splitRef}>
       <TreePane
         error={error}
         onSelect={handleSelectionChange}
@@ -153,7 +190,8 @@ function FileBrowser({ worktreePath }: { worktreePath: string }) {
  * expansion and selection every time a file is saved.
  */
 async function followDisk(options: {
-  known: Set<string>;
+  isReady: () => boolean;
+  known: () => Set<string>;
   model: { add: (path: string) => void; remove: (path: string) => void };
   signal: AbortSignal;
   worktreePath: string;
@@ -165,12 +203,19 @@ async function followDisk(options: {
       if (options.signal.aborted) {
         return;
       }
+      if (!options.isReady()) {
+        // The first scan has not landed yet; whatever it finds will include
+        // this, and applying it now would only be undone by that scan.
+        continue;
+      }
+
+      const known = options.known();
       if (change.kind === "removed") {
-        if (options.known.delete(change.path)) {
+        if (known.delete(change.path)) {
           options.model.remove(change.path);
         }
-      } else if (!options.known.has(change.path)) {
-        options.known.add(change.path);
+      } else if (!known.has(change.path)) {
+        known.add(change.path);
         options.model.add(change.path);
       }
     }
@@ -211,30 +256,33 @@ function TreePane({
   });
 
   const known = useRef<Set<string>>(new Set());
+  const ready = useRef(false);
 
   useEffect(() => {
     if (!paths) {
       return;
     }
     known.current = new Set(paths);
+    ready.current = true;
     model.resetPaths(paths);
   }, [model, paths]);
 
+  // Deliberately keyed on the worktree alone. Re-subscribing leaves a window
+  // where the stream has been torn down and its replacement has not arrived,
+  // and anything that changes on disk in between reaches nobody — so this must
+  // not re-run when the component merely re-renders.
   useEffect(() => {
-    if (!paths) {
-      return;
-    }
-
     const controller = new AbortController();
     followDisk({
-      known: known.current,
+      isReady: () => ready.current,
+      known: () => known.current,
       model,
       signal: controller.signal,
       worktreePath,
     });
 
     return () => controller.abort();
-  }, [model, paths, worktreePath]);
+  }, [model, worktreePath]);
 
   if (error) {
     return (
@@ -259,10 +307,13 @@ function TreePane({
   }
 
   return (
-    <div className="flex min-w-0 shrink-0 flex-col" style={{ width }}>
+    <div
+      className="flex min-w-0 shrink-0 flex-col overflow-hidden"
+      style={{ width }}
+    >
       <FileTree
         model={model}
-        style={{ flex: 1, minHeight: 0, paddingTop: 8 }}
+        style={{ flex: 1, minHeight: 0, minWidth: 0, paddingTop: 8 }}
       />
       {truncated ? (
         <p className="px-2 pb-1 text-[10.5px] text-bw-pending leading-tight">

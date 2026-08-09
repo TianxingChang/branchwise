@@ -228,7 +228,11 @@ Three layers, and the middle one carries the weight:
   is a warm-up before events arrive, so a change made right after attaching is
   missed. The file watcher therefore outlives its last subscriber by ten
   seconds — switching a panel tab away and back reuses a warm watcher instead
-  of paying that window again.
+  of paying that window again. For the same reason the tree's subscription is
+  keyed on the worktree and nothing else: re-subscribing leaves a gap where the
+  old stream is gone and its replacement has not arrived, and a change landing
+  in between is broadcast to nobody. Any dependency that varies per render —
+  `paths`, a width, a callback — silently reintroduces that gap.
 - **A path from the renderer is untrusted input.** The File tab names files by
   a path relative to the worktree, so `src/../../..` would otherwise read the
   whole machine. Segment normalisation is not enough on its own: a symlink
