@@ -10,6 +10,7 @@ import { ipcContext } from "@/ipc/context";
 import { IPC_CHANNELS, inDevelopment } from "./constants";
 import { stopAllWatching } from "./ipc/files/watcher";
 import { killAll } from "./ipc/terminal/manager";
+import { destroyAllViews } from "./ipc/view/manager";
 import { getBasePath } from "./utils/path";
 
 /** Set to "owner/repo" once branchwise ships GitHub releases. */
@@ -38,6 +39,10 @@ function createWindow() {
     width: 1280,
   });
   ipcContext.setMainWindow(mainWindow);
+
+  // Embedded pages are native children of this window, not DOM — they do not
+  // go away with the renderer, so the window's close must take them along.
+  mainWindow.on("close", () => destroyAllViews());
 
   if (MAIN_WINDOW_VITE_DEV_SERVER_URL) {
     mainWindow.loadURL(MAIN_WINDOW_VITE_DEV_SERVER_URL);
@@ -107,6 +112,7 @@ app.whenReady().then(() => {
 app.on("before-quit", () => {
   killAll();
   stopAllWatching();
+  destroyAllViews();
 });
 
 //osX only

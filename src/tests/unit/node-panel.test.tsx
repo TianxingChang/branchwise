@@ -27,6 +27,9 @@ vi.mock("@/components/panel/agent-tab", () => ({
 vi.mock("@/components/panel/artifact-tab", () => ({
   default: () => null,
 }));
+vi.mock("@/components/panel/view-tab", () => ({
+  default: () => null,
+}));
 vi.mock("@/components/panel/file-tab", () => ({
   default: () => null,
 }));
@@ -107,16 +110,15 @@ beforeEach(() => {
 });
 
 describe("tab order", () => {
-  test("runs Agent, Diff, Terminal, File, Artifact", () => {
+  test("runs Agent, Diff, Terminal, File, View, Artifact", () => {
     seedAndRender("split");
+    const known = ["Agent", "Diff", "Terminal", "File", "View", "Artifact"];
     const tabs = screen
       .getAllByRole("button")
       .map((button) => button.textContent)
-      .filter((label) =>
-        ["Agent", "Diff", "Terminal", "File", "Artifact"].includes(label ?? "")
-      );
+      .filter((label) => known.includes(label ?? ""));
 
-    expect(tabs).toEqual(["Agent", "Diff", "Terminal", "File", "Artifact"]);
+    expect(tabs).toEqual(known);
   });
 });
 

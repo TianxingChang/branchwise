@@ -39,7 +39,7 @@ export function createSeedDoc(): GraphDoc {
  * existed in git and cannot be migrated into anything meaningful.
  */
 export function parseGraphDoc(raw: unknown): GraphDoc | null {
-  const parsed = graphDocSchema.safeParse(migrateLegacyTab(raw));
+  const parsed = graphDocSchema.safeParse(raw);
   if (!parsed.success) {
     return null;
   }
@@ -55,24 +55,4 @@ export function parseGraphDoc(raw: unknown): GraphDoc | null {
 
 export function serializeGraphDoc(doc: GraphDoc): string {
   return `${JSON.stringify(doc, null, 2)}\n`;
-}
-
-/**
- * The View placeholder became the Artifact tab. A doc that persisted
- * panel.tab "view" must land on "artifact" rather than fail validation —
- * rejecting it would throw away every branch annotation in the project.
- */
-function migrateLegacyTab(raw: unknown): unknown {
-  if (
-    typeof raw === "object" &&
-    raw !== null &&
-    "panel" in raw &&
-    typeof raw.panel === "object" &&
-    raw.panel !== null &&
-    "tab" in raw.panel &&
-    raw.panel.tab === "view"
-  ) {
-    return { ...raw, panel: { ...raw.panel, tab: "artifact" } };
-  }
-  return raw;
 }

@@ -7,6 +7,7 @@ import ArtifactTab from "@/components/panel/artifact-tab";
 import DiffTab from "@/components/panel/diff-tab";
 import FileTab from "@/components/panel/file-tab";
 import TerminalTab from "@/components/panel/terminal-tab";
+import ViewTab from "@/components/panel/view-tab";
 import {
   MAX_PANEL_WIDTH,
   MIN_PANEL_WIDTH,
@@ -31,6 +32,7 @@ const TAB_LABELS: Record<PanelTab, string> = {
   diff: "Diff",
   file: "File",
   terminal: "Terminal",
+  view: "View",
 };
 
 /**
@@ -415,6 +417,11 @@ function PanelBody({
     // Keyed by worktree so switching nodes gets its own shell rather than
     // re-pointing this one.
     return <TerminalTab key={node.id} node={node} />;
+  }
+
+  if (tab === "view") {
+    // Keyed by worktree so each node previews its own address.
+    return <ViewTab branchLabel={label} key={node.id} node={node} />;
   }
 
   if (tab === "artifact") {

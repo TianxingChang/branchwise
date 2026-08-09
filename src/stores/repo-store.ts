@@ -9,6 +9,7 @@ import {
   watchRepo,
 } from "@/actions/repo";
 import { killTerminal, killTerminalsUnder } from "@/actions/terminal";
+import { destroyViewsUnder } from "@/actions/view";
 import { createSeedDoc } from "@/lib/branch/doc";
 import { clampSplitWidth, postureOnOpenTab } from "@/lib/branch/posture";
 import {
@@ -248,12 +249,15 @@ export const useRepoStore = create<RepoStoreState>()((set, get) => {
       subscriptions.get(folder)?.abort();
       subscriptions.delete(folder);
 
-      // Shells are keyed by worktree path and outlive their view, so closing
-      // the project is what finally stops them.
+      // Shells and preview pages are keyed by worktree path and outlive the
+      // components that show them, so closing the project is what finally
+      // stops them.
       const root = get().projects[folder]?.repo?.root;
       if (root) {
         killTerminalsUnder(root).catch(() => undefined);
         killTerminalsUnder(`${root}.worktrees`).catch(() => undefined);
+        destroyViewsUnder(root).catch(() => undefined);
+        destroyViewsUnder(`${root}.worktrees`).catch(() => undefined);
       }
     },
 
