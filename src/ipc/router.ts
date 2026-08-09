@@ -1,3 +1,4 @@
+import { agent } from "./agent";
 import { app } from "./app";
 import { artifacts } from "./artifacts";
 import { files } from "./files";
@@ -9,6 +10,7 @@ import { theme } from "./theme";
 import { window } from "./window";
 
 export const router = {
+  agent,
   app,
   artifacts,
   files,
