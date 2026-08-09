@@ -52,6 +52,47 @@ export function createClaudeDriver(dependencies?: {
         : { behavior: "deny", message: "Denied from the branchwise panel." };
     };
 
+    function* processMessage(
+      message: unknown
+    ): Generator<AgentEvent, void, unknown> {
+      if (!sessionAnnounced) {
+        const sessionId = (message as { session_id?: unknown }).session_id;
+        if (typeof sessionId === "string" && sessionId.length > 0) {
+          sessionAnnounced = true;
+          input.onSessionId(sessionId);
+        }
+      }
+      for (const event of mapClaudeMessage(message, turnId)) {
+        if (event.kind === "turn-done") {
+          sawResult = true;
+        }
+        yield event;
+      }
+    }
+
+    async function* streamEvents(
+      options: Record<string, unknown>
+    ): AsyncGenerator<AgentEvent> {
+      try {
+        const stream = factory
+          ? factory({ options, prompt: input.prompt })
+          : await defaultQueryFactory({ options, prompt: input.prompt });
+
+        for await (const message of stream) {
+          yield* processMessage(message);
+        }
+      } catch (error) {
+        if (!controller.signal.aborted) {
+          yield {
+            kind: "error",
+            message:
+              error instanceof Error ? error.message : "The Claude run failed.",
+          };
+          yield done("error");
+        }
+      }
+    }
+
     async function* events(): AsyncGenerator<AgentEvent> {
       yield { kind: "turn-started", turnId };
 
@@ -71,37 +112,7 @@ export function createClaudeDriver(dependencies?: {
         worktreePath: input.worktreePath,
       });
 
-      try {
-        const stream = factory
-          ? factory({ options, prompt: input.prompt })
-          : await defaultQueryFactory({ options, prompt: input.prompt });
-
-        for await (const message of stream) {
-          if (!sessionAnnounced) {
-            const sessionId = (message as { session_id?: unknown }).session_id;
-            if (typeof sessionId === "string" && sessionId.length > 0) {
-              sessionAnnounced = true;
-              input.onSessionId(sessionId);
-            }
-          }
-          for (const event of mapClaudeMessage(message, turnId)) {
-            if (event.kind === "turn-done") {
-              sawResult = true;
-            }
-            yield event;
-          }
-        }
-      } catch (error) {
-        if (!controller.signal.aborted) {
-          yield {
-            kind: "error",
-            message:
-              error instanceof Error ? error.message : "The Claude run failed.",
-          };
-          yield done("error");
-          return;
-        }
-      }
+      yield* streamEvents(options);
 
       if (!sawResult) {
         yield done(controller.signal.aborted ? "interrupted" : "completed");

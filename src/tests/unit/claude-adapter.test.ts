@@ -116,6 +116,13 @@ describe("claude adapter", () => {
         return (async function* () {
           yield { session_id: "s", subtype: "init", type: "system" };
           await new Promise<void>((resolve) => {
+            // Interrupt may fire before this generator is ever pulled this
+            // far — an abort listener added after the fact never fires, so
+            // check the flag first.
+            if (controller.signal.aborted) {
+              resolve();
+              return;
+            }
             controller.signal.addEventListener("abort", () => resolve(), {
               once: true,
             });
