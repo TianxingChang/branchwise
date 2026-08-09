@@ -3063,6 +3063,8 @@ function rec(value: unknown): Record<string, unknown> | null {
 
 export function createCodexDriver(dependencies?: {
   client?: CodexAppServer;
+  /** Called with each spawned child's pid so the manager can pidfile it. */
+  onSpawn?: (pid: number) => void;
   resolveExecutable?: () => Promise<string | null>;
 }): AgentDriver {
   let client: CodexAppServer | null = dependencies?.client ?? null;
@@ -3079,7 +3081,13 @@ export function createCodexDriver(dependencies?: {
     if (!executable) {
       throw new Error(INSTALL_HINT);
     }
-    client = new CodexAppServer(() => spawnCodexAppServer(executable));
+    client = new CodexAppServer(() => {
+      const child = spawnCodexAppServer(executable);
+      if (child.pid !== undefined) {
+        dependencies?.onSpawn?.(child.pid);
+      }
+      return child;
+    });
     return client;
   }
 
@@ -3750,9 +3758,39 @@ const PERMISSION_TIMEOUT_MS = 5 * 60 * 1000;
 interface ActiveTurn {
   flushed: AgentEvent[]; // replay buffer for late attachers, this turn only
   handle: AgentTurnHandle;
-  pendingText: string;
-  pendingThinking: string;
+  /** Delta runs in arrival order — only ADJACENT same-kind runs merge, so a
+   * thinking→text transition can never flush inverted. */
+  pendingDeltas: { kind: "text-delta" | "thinking-delta"; text: string }[];
   timer: NodeJS.Timeout | null;
+}
+
+/** Occupies the worktree's slot between the synchronous guard and startTurn. */
+const RESERVED_TURN: ActiveTurn = {
+  flushed: [],
+  handle: {
+    events: (async function* (): AsyncGenerator<AgentEvent> {})(),
+    interrupt: () => Promise.resolve(),
+  },
+  pendingDeltas: [],
+  timer: null,
+};
+
+let shuttingDown = false;
+
+/**
+ * Per-worktree emit chain: transcript appends and broadcasts happen strictly
+ * in event order, even though each append awaits the filesystem. Without
+ * this, a timer flush in flight can let a turn-done overtake its deltas.
+ */
+const emitChains = new Map<string, Promise<void>>();
+function enqueueEmit(worktreePath: string, event: AgentEvent): Promise<void> {
+  const tail = emitChains.get(worktreePath) ?? Promise.resolve();
+  const next = tail.then(() => emit(worktreePath, event));
+  emitChains.set(
+    worktreePath,
+    next.catch(() => {})
+  );
+  return next;
 }
 
 interface ManagerState {
@@ -3806,7 +3844,16 @@ async function driverFor(id: AgentDriverId): Promise<AgentDriver> {
     state.drivers[id] = createClaudeDriver();
   } else {
     const { createCodexDriver } = await import("@/ipc/codex/adapter");
-    state.drivers[id] = createCodexDriver();
+    const dir = await baseDir();
+    state.drivers[id] = createCodexDriver({
+      // Every spawned codex child lands in the pid file so a hard crash can
+      // be reaped on next launch and a wedged child SIGKILLed at quit.
+      onSpawn: (pid) => {
+        void import("./pids").then(({ registerPid }) =>
+          registerPid(dir, pid).catch(() => {})
+        );
+      },
+    });
   }
   const created = state.drivers[id];
   if (!created) {
@@ -3822,10 +3869,13 @@ function broadcast(worktreePath: string, event: AgentEvent): void {
 }
 
 async function emit(worktreePath: string, event: AgentEvent): Promise<void> {
+  // Capture the turn before awaiting: a turn that ends during the fs write
+  // must not leak this event into its successor's replay buffer. Persist
+  // before broadcasting so anything a subscriber has seen is already history.
   const turn = turns.get(worktreePath);
+  await appendTranscript(await baseDir(), worktreePath, event);
   turn?.flushed.push(event);
   broadcast(worktreePath, event);
-  await appendTranscript(await baseDir(), worktreePath, event);
 }
 
 function flushDeltas(worktreePath: string): Promise<void> {
@@ -3833,22 +3883,17 @@ function flushDeltas(worktreePath: string): Promise<void> {
   if (!turn) {
     return Promise.resolve();
   }
-  const writes: Promise<void>[] = [];
-  if (turn.pendingText.length > 0) {
-    writes.push(emit(worktreePath, { kind: "text-delta", text: turn.pendingText }));
-    turn.pendingText = "";
-  }
-  if (turn.pendingThinking.length > 0) {
-    writes.push(
-      emit(worktreePath, { kind: "thinking-delta", text: turn.pendingThinking })
-    );
-    turn.pendingThinking = "";
-  }
+  const runs = turn.pendingDeltas;
+  turn.pendingDeltas = [];
   if (turn.timer) {
     clearTimeout(turn.timer);
     turn.timer = null;
   }
-  return Promise.all(writes).then(() => {});
+  let last: Promise<void> = Promise.resolve();
+  for (const run of runs) {
+    last = enqueueEmit(worktreePath, { kind: run.kind, text: run.text });
+  }
+  return last;
 }
 
 function scheduleFlush(worktreePath: string): void {
@@ -3925,53 +3970,72 @@ export async function send(
   if (trimmed.length === 0) {
     return { accepted: false, reason: "Empty message." };
   }
+  if (shuttingDown) {
+    return { accepted: false, reason: "branchwise is shutting down." };
+  }
   if (turns.has(worktreePath)) {
     return { accepted: false, reason: "A turn is already running." };
   }
+  // Synchronous reservation BEFORE any await: two sends racing through the
+  // fs reads below must not both reach startTurn — the loser's agent would
+  // run unreachable by interrupt or shutdown, billing into the void.
+  turns.set(worktreePath, RESERVED_TURN);
 
-  const dir = await baseDir();
-  const registry = await loadRegistry(dir);
-  const entry = registry.worktrees[worktreePath];
-  const config: AgentConfig = entry
-    ? { driverId: entry.driverId, tier: entry.tier }
-    : { driverId: registry.lastDriverId, tier: "accept-edits" };
-  if (!entry) {
-    await setConfig(worktreePath, config);
-  }
-
-  const driver = await driverFor(config.driverId);
-  const handle = driver.startTurn({
-    onSessionId: (id) => void persistIds(worktreePath, { sessionId: id }),
-    onThreadId: (id) => void persistIds(worktreePath, { threadId: id }),
-    prompt: trimmed,
-    requestPermission: (request) =>
-      new Promise<boolean>((resolve) => {
-        const forWorktree =
-          pendingPermissions.get(worktreePath) ?? new Map();
-        pendingPermissions.set(worktreePath, forWorktree);
-        const timer = setTimeout(() => {
-          forWorktree.delete(request.requestId);
-          resolve(false);
-        }, PERMISSION_TIMEOUT_MS);
-        forWorktree.set(request.requestId, { resolve, timer });
-      }),
-    resume: {
+  let handle: AgentTurnHandle;
+  let resume: { sessionId: string | null; threadId: string | null };
+  try {
+    const dir = await baseDir();
+    const registry = await loadRegistry(dir);
+    const entry = registry.worktrees[worktreePath];
+    const config: AgentConfig = entry
+      ? { driverId: entry.driverId, tier: entry.tier }
+      : { driverId: registry.lastDriverId, tier: "accept-edits" };
+    if (!entry) {
+      await setConfig(worktreePath, config);
+    }
+    resume = {
       sessionId: entry?.sessionId ?? null,
       threadId: entry?.threadId ?? null,
-    },
-    tier: config.tier,
-    worktreePath,
-  });
+    };
+
+    const driver = await driverFor(config.driverId);
+    handle = driver.startTurn({
+      onSessionId: (id) => void persistIds(worktreePath, { sessionId: id }),
+      onThreadId: (id) => void persistIds(worktreePath, { threadId: id }),
+      prompt: trimmed,
+      requestPermission: (request) =>
+        new Promise<boolean>((resolve) => {
+          const forWorktree =
+            pendingPermissions.get(worktreePath) ?? new Map();
+          pendingPermissions.set(worktreePath, forWorktree);
+          const timer = setTimeout(() => {
+            forWorktree.delete(request.requestId);
+            resolve(false);
+          }, PERMISSION_TIMEOUT_MS);
+          forWorktree.set(request.requestId, { resolve, timer });
+        }),
+      resume,
+      tier: config.tier,
+      worktreePath,
+    });
+  } catch (error) {
+    // The reservation must not outlive a failed start.
+    turns.delete(worktreePath);
+    return {
+      accepted: false,
+      reason:
+        error instanceof Error ? error.message : "The agent could not start.",
+    };
+  }
 
   const turn: ActiveTurn = {
     flushed: [],
     handle,
-    pendingText: "",
-    pendingThinking: "",
+    pendingDeltas: [],
     timer: null,
   };
-  turns.set(worktreePath, turn);
-  await emit(worktreePath, { kind: "user-message", text: trimmed });
+  turns.set(worktreePath, turn); // replaces the reservation
+  await enqueueEmit(worktreePath, { kind: "user-message", text: trimmed });
 
   void (async () => {
     try {
@@ -3980,41 +4044,60 @@ export async function send(
         if (live !== turn) {
           return; // superseded (shutdown raced a stream tail)
         }
-        if (event.kind === "text-delta") {
-          turn.pendingText += event.text;
-          scheduleFlush(worktreePath);
-          continue;
-        }
-        if (event.kind === "thinking-delta") {
-          turn.pendingThinking += event.text;
+        if (event.kind === "text-delta" || event.kind === "thinking-delta") {
+          const last = turn.pendingDeltas.at(-1);
+          if (last && last.kind === event.kind) {
+            last.text += event.text;
+          } else {
+            turn.pendingDeltas.push({ kind: event.kind, text: event.text });
+          }
           scheduleFlush(worktreePath);
           continue;
         }
         await flushDeltas(worktreePath);
-        await emit(worktreePath, event);
+        await enqueueEmit(worktreePath, event);
         if (event.kind === "turn-done") {
           turns.delete(worktreePath);
         }
       }
     } catch (error) {
       await flushDeltas(worktreePath);
-      await emit(worktreePath, {
+      await enqueueEmit(worktreePath, {
         kind: "error",
         message:
           error instanceof Error ? error.message : "The agent stream failed.",
       });
-      await emit(worktreePath, {
+      await enqueueEmit(worktreePath, {
         costUsd: null,
         kind: "turn-done",
         stopReason: "error",
         turnId: "stream",
         usage: null,
       });
-      turns.delete(worktreePath);
+    } finally {
+      // Backstop: streams that end without a terminal event, and the crash
+      // path, both free the slot; no parked permission waits out its five
+      // minutes against a dead turn.
+      if (turns.get(worktreePath) === turn) {
+        turns.delete(worktreePath);
+      }
+      denyPendingPermissions(worktreePath);
     }
   })();
 
   return { accepted: true };
+}
+
+function denyPendingPermissions(worktreePath: string): void {
+  const forWorktree = pendingPermissions.get(worktreePath);
+  if (!forWorktree) {
+    return;
+  }
+  for (const [, entry] of forWorktree) {
+    clearTimeout(entry.timer);
+    entry.resolve(false);
+  }
+  pendingPermissions.delete(worktreePath);
 }
 
 export function attachAgent(worktreePath: string): {
@@ -4073,6 +4156,7 @@ export async function readHistory(worktreePath: string): Promise<AgentEvent[]> {
 
 /** Quit-time teardown: interrupt, shut drivers down, reap what's left. */
 export async function shutdownAgents(timeoutMs = 2000): Promise<void> {
+  shuttingDown = true; // sends mid-flight refuse from here on
   const work = (async () => {
     await Promise.all(
       [...turns.keys()].map((worktreePath) => interruptTurn(worktreePath))
@@ -4085,6 +4169,9 @@ export async function shutdownAgents(timeoutMs = 2000): Promise<void> {
     work,
     new Promise((resolve) => setTimeout(resolve, timeoutMs)),
   ]);
+  for (const worktreePath of [...pendingPermissions.keys()]) {
+    denyPendingPermissions(worktreePath);
+  }
   const { reapStrays } = await import("./pids");
   await reapStrays(await baseDir()).catch(() => []);
 }
@@ -4109,22 +4196,24 @@ Expected: PASS.
 Replace the current handler at `src/main.ts:105-111`:
 
 ```ts
-// Shells outlive the windows that show them, so they need an explicit stop.
-// Synchronous on purpose: Electron does not wait for an async quit handler, so
-// a dynamic import here could lose the race and leave shells behind.
+// Shells stop synchronously (they always did); agents need a bounded async
+// window: interrupt, SIGTERM, then SIGKILL via the pid file. The flag is set
+// in the completion handler BEFORE quit() so the re-entrant quit passes, and
+// a failed import must still quit — an unquittable app is worse than an
+// unreaped agent (startup reap covers those).
 let agentsShutDown = false;
 app.on("before-quit", (event) => {
   killAll();
   stopAllWatching();
   if (!agentsShutDown) {
-    // Agents need a bounded async window: interrupt, SIGTERM, then SIGKILL.
     event.preventDefault();
-    void import("./ipc/agent/manager").then(({ shutdownAgents }) =>
-      shutdownAgents(2000).finally(() => {
+    void import("./ipc/agent/manager")
+      .then(({ shutdownAgents }) => shutdownAgents(2000))
+      .catch(() => {})
+      .finally(() => {
         agentsShutDown = true;
         app.quit();
-      })
-    );
+      });
   }
 });
 ```
