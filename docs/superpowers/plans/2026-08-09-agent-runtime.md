@@ -2045,6 +2045,50 @@ describe("CodexAppServer", () => {
     client.dispose();
     await expect(pending).rejects.toThrow();
   });
+
+  test("a child crash resets state so the next request reconnects cleanly", async () => {
+    let spawned = 0;
+    const children: ReturnType<typeof fakeChild>[] = [];
+    const client = new CodexAppServer(() => {
+      spawned += 1;
+      const fake = fakeChild();
+      children.push(fake);
+      return fake.child;
+    });
+    const first = client.request("thread/start", {});
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    // Die mid-line: the torn fragment must not prefix generation two.
+    (children[0]?.child.stdout as PassThrough).write('{"partial');
+    children[0]?.child.kill();
+    await expect(first).rejects.toThrow();
+
+    const second = client.request("thread/start", {});
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    expect(spawned).toBe(2);
+    const start = children[1]?.received.find(
+      (m) => m.method === "thread/start"
+    );
+    expect(start).toBeDefined();
+    children[1]?.send({ id: start?.id, result: { threadId: "th_2" } });
+    await expect(second).resolves.toEqual({ threadId: "th_2" });
+  });
+
+  test("a synchronously throwing request handler becomes an error reply", async () => {
+    const { child, received, send } = fakeChild();
+    const client = new CodexAppServer(() => child);
+    client.onRequest(() => {
+      throw new Error("handler blew up");
+    });
+    const pending = client.request("thread/start", {});
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    send({ id: 55, method: "item/commandExecution/requestApproval", params: {} });
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    const reply = received.find((m) => m.id === 55 && "error" in m);
+    expect(reply).toBeDefined();
+    const start = received.find((m) => m.method === "thread/start");
+    send({ id: start?.id, result: {} });
+    await pending;
+  });
 });
 ```
 
@@ -2201,8 +2245,17 @@ export class CodexAppServer {
 
     const child = this.spawnChild();
     this.child = child;
-    child.stdout.on("data", (chunk: Buffer) => this.receive(chunk));
+    // Fresh generation, fresh framing state: a torn line from a dead child
+    // must never prefix the next child's first response.
+    this.buffer = "";
+    const onData = (chunk: Buffer) => {
+      if (this.child === child) {
+        this.receive(chunk);
+      }
+    };
+    child.stdout.on("data", onData);
     child.onExit(() => {
+      child.stdout.removeListener("data", onData);
       for (const [, entry] of this.pending) {
         clearTimeout(entry.timer);
         entry.reject(new AgentDriverError("codex app-server exited."));
@@ -2210,14 +2263,31 @@ export class CodexAppServer {
       this.pending.clear();
       this.handshake = null;
       this.child = null;
+      this.buffer = "";
     });
 
     this.handshake = (async () => {
-      await this.rawRequest("initialize", {
-        capabilities: {},
-        clientInfo: { name: "branchwise", title: "branchwise", version: "0.0.1" },
-      });
-      this.send({ method: "initialized" });
+      try {
+        await this.rawRequest("initialize", {
+          capabilities: {},
+          clientInfo: {
+            name: "branchwise",
+            title: "branchwise",
+            version: "0.0.1",
+          },
+        });
+        this.send({ method: "initialized" });
+      } catch (error) {
+        // A failed handshake must not wedge the instance or leak the child:
+        // reset so the next request retries against a fresh process.
+        if (this.child === child) {
+          this.child = null;
+          child.kill("SIGTERM");
+        }
+        this.handshake = null;
+        this.buffer = "";
+        throw error;
+      }
     })();
     return this.handshake;
   }
@@ -2272,11 +2342,19 @@ export class CodexAppServer {
         }
         return;
       }
-      // Server→client request: first handler that answers wins.
+      // Server→client request: first handler that answers wins. A handler
+      // that throws synchronously must become an error reply, not an
+      // exception escaping the stream's data listener.
       const handler = [...this.requestHandlers][0];
-      Promise.resolve(
-        handler ? handler(message.method, message.params) : undefined
-      )
+      let outcome: Promise<unknown>;
+      try {
+        outcome = Promise.resolve(
+          handler ? handler(message.method, message.params) : undefined
+        );
+      } catch (error) {
+        outcome = Promise.reject(error);
+      }
+      outcome
         .then((result) => this.send({ id: message.id as number, result }))
         .catch((error: unknown) =>
           this.send({
