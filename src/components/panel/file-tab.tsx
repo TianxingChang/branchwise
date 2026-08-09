@@ -17,7 +17,10 @@ const DEFAULT_TREE_WIDTH = 180;
 
 /** Matches the panel's own surface so the shadow-rooted tree does not clash. */
 const TREE_CSS = `
-  :host { font-size: 12px; }
+  :host {
+    background: transparent;
+    font-size: 12px;
+  }
   button[data-type='item'] { font-size: 12px; }
 `;
 
@@ -83,7 +86,7 @@ function FileBrowser({ worktreePath }: { worktreePath: string }) {
   }, []);
 
   return (
-    <div className="flex h-full pt-2">
+    <div className="flex h-full">
       <TreePane
         error={error}
         onSelect={handleSelectionChange}
@@ -224,7 +227,10 @@ function TreePane({
 
   return (
     <div className="flex min-w-0 shrink-0 flex-col" style={{ width }}>
-      <FileTree model={model} style={{ flex: 1, minHeight: 0 }} />
+      <FileTree
+        model={model}
+        style={{ flex: 1, minHeight: 0, paddingTop: 8 }}
+      />
       {truncated ? (
         <p className="px-2 pb-1 text-[10.5px] text-bw-pending leading-tight">
           Listing stops early
@@ -280,7 +286,7 @@ function ResizeHandle({
 
   return (
     <div
-      className="w-1.5 shrink-0 cursor-col-resize border-bw-hairline border-x bg-bw-canvas/40 transition-colors hover:bg-bw-subtle"
+      className="relative z-10 -mx-1 w-2 shrink-0 cursor-col-resize bg-transparent transition-colors hover:bg-bw-hairline"
       onPointerDown={handlePointerDown}
     />
   );
