@@ -1279,6 +1279,56 @@ describe("mapClaudeMessage", () => {
     ]);
   });
 
+  test("a multi-line command collapses to a one-line detail", () => {
+    const message = {
+      message: {
+        content: [
+          {
+            id: "toolu_2",
+            input: { command: "npm run build &&\nnpm test\n# done" },
+            name: "Bash",
+            type: "tool_use",
+          },
+        ],
+      },
+      type: "assistant",
+    };
+    expect(mapClaudeMessage(message, "t1")).toEqual([
+      {
+        detail: "npm run build && npm test # done",
+        kind: "tool-started",
+        name: "Bash",
+        toolId: "toolu_2",
+      },
+    ]);
+  });
+
+  test("array-shaped tool_result content extracts its text blocks", () => {
+    const message = {
+      message: {
+        content: [
+          {
+            content: [
+              { text: "line one", type: "text" },
+              { text: "line two", type: "text" },
+            ],
+            tool_use_id: "toolu_1",
+            type: "tool_result",
+          },
+        ],
+      },
+      type: "user",
+    };
+    expect(mapClaudeMessage(message, "t1")).toEqual([
+      {
+        detail: "line one line two",
+        kind: "tool-finished",
+        ok: true,
+        toolId: "toolu_1",
+      },
+    ]);
+  });
+
   test("result carries cost and usage into turn-done", () => {
     const message = {
       subtype: "success",
@@ -1336,8 +1386,18 @@ function rec(value: unknown): Rec | null {
   return value !== null && typeof value === "object" ? (value as Rec) : null;
 }
 
+/**
+ * Collapses all whitespace (newlines included) and caps length. `detail`
+ * fields are one-line human summaries by contract — a multi-line shell
+ * command must not smuggle newlines into them.
+ */
+function oneLine(value: string): string {
+  const flat = value.replace(/\s+/g, " ").trim();
+  return flat.length > 200 ? `${flat.slice(0, 200)}…` : flat;
+}
+
 /** One line of human-readable context for a tool call, vendor payload stays here. */
-function toolDetail(name: unknown, input: unknown): string {
+function toolDetail(input: unknown): string {
   const fields = rec(input);
   if (!fields) {
     return "";
@@ -1345,16 +1405,26 @@ function toolDetail(name: unknown, input: unknown): string {
   for (const key of ["command", "file_path", "path", "pattern", "url", "query"]) {
     const value = fields[key];
     if (typeof value === "string" && value.length > 0) {
-      return value.length > 200 ? `${value.slice(0, 200)}…` : value;
+      return oneLine(value);
     }
   }
-  const json = JSON.stringify(fields);
-  return json.length > 200 ? `${json.slice(0, 200)}…` : json;
+  return oneLine(JSON.stringify(fields));
 }
 
 function resultText(content: unknown): string {
   if (typeof content === "string") {
-    return content.length > 200 ? `${content.slice(0, 200)}…` : content;
+    return oneLine(content);
+  }
+  // tool_result content can also be an array of content blocks.
+  if (Array.isArray(content)) {
+    const texts: string[] = [];
+    for (const block of content) {
+      const b = rec(block);
+      if (b?.type === "text" && typeof b.text === "string") {
+        texts.push(b.text);
+      }
+    }
+    return oneLine(texts.join(" "));
   }
   return "";
 }
@@ -1400,7 +1470,7 @@ export function mapClaudeMessage(message: unknown, turnId: string): AgentEvent[]
       }
       if (b.type === "tool_use" && typeof b.id === "string") {
         events.push({
-          detail: toolDetail(b.name, b.input),
+          detail: toolDetail(b.input),
           kind: "tool-started",
           name: typeof b.name === "string" ? b.name : "tool",
           toolId: b.id,
@@ -2348,7 +2418,9 @@ function clip(value: unknown): string {
   if (typeof value !== "string") {
     return "";
   }
-  return value.length > 200 ? `${value.slice(0, 200)}…` : value;
+  // One-line contract for detail fields: collapse newlines before capping.
+  const flat = value.replace(/\s+/g, " ").trim();
+  return flat.length > 200 ? `${flat.slice(0, 200)}…` : flat;
 }
 
 function itemName(item: Rec): string {
