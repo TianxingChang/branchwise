@@ -13,25 +13,24 @@ function line(kind: DiffLine["kind"], text: string): DiffLine {
 
 describe("changedSegments", () => {
   test("isolates the words that changed and keeps the rest", () => {
-    const result = changedSegments(
-      "  return a + b;",
-      "  const sum = a + b;"
-    );
+    const result = changedSegments("  return a + b;", "  const sum = a + b;");
 
-    expect(result).not.toBeNull();
-    const oldJoined = result?.old.map((segment) => segment.text).join("");
-    const newJoined = result?.new.map((segment) => segment.text).join("");
+    if (!result) {
+      throw new Error("expected segments for a similar pair");
+    }
+    const oldJoined = result.old.map((segment) => segment.text).join("");
+    const newJoined = result.new.map((segment) => segment.text).join("");
     expect(oldJoined).toBe("  return a + b;");
     expect(newJoined).toBe("  const sum = a + b;");
 
-    const changedNew = result?.new
+    const changedNew = result.new
       .filter((segment) => segment.changed)
       .map((segment) => segment.text)
       .join("");
     expect(changedNew).toContain("sum");
     expect(changedNew).not.toContain("a + b;");
 
-    const keptNew = result?.new.find((segment) =>
+    const keptNew = result.new.find((segment) =>
       segment.text.includes("a + b;")
     );
     expect(keptNew?.changed).toBe(false);
@@ -40,13 +39,16 @@ describe("changedSegments", () => {
   test("marks nothing when the lines are identical", () => {
     const result = changedSegments("same text", "same text");
 
-    expect(result?.old.every((segment) => !segment.changed)).toBe(true);
-    expect(result?.new.every((segment) => !segment.changed)).toBe(true);
+    if (!result) {
+      throw new Error("expected segments for identical lines");
+    }
+    expect(result.old.every((segment) => !segment.changed)).toBe(true);
+    expect(result.new.every((segment) => !segment.changed)).toBe(true);
   });
 
   test("gives up on lines that share almost nothing", () => {
     expect(
-      changedSegments("import { z } from \"zod\";", "const total = 41;")
+      changedSegments('import { z } from "zod";', "const total = 41;")
     ).toBeNull();
   });
 });

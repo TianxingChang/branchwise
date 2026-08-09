@@ -53,8 +53,8 @@ function commonTokens(
   const cols = newTokens.length + 1;
   const table = new Uint16Array(rows * cols);
 
-  for (let row = 1; row < rows; row++) {
-    for (let col = 1; col < cols; col++) {
+  for (let row = 1; row < rows; row += 1) {
+    for (let col = 1; col < cols; col += 1) {
       table[row * cols + col] =
         oldTokens[row - 1] === newTokens[col - 1]
           ? table[(row - 1) * cols + (col - 1)] + 1
@@ -91,7 +91,7 @@ function commonTokens(
 /** Fuses adjacent tokens with the same fate into render-ready segments. */
 function toSegments(tokens: string[], keep: boolean[]): Segment[] {
   const segments: Segment[] = [];
-  for (let index = 0; index < tokens.length; index++) {
+  for (let index = 0; index < tokens.length; index += 1) {
     const changed = !keep[index];
     const last = segments.at(-1);
     if (last && last.changed === changed) {
@@ -108,8 +108,8 @@ function toSegments(tokens: string[], keep: boolean[]): Segment[] {
  * it, index for index — the shape `git diff` emits for an edited block. The
  * pairs are what intra-line comparison runs on.
  */
-export function pairChangedLines(lines: DiffLine[]): Array<[number, number]> {
-  const pairs: Array<[number, number]> = [];
+export function pairChangedLines(lines: DiffLine[]): [number, number][] {
+  const pairs: [number, number][] = [];
 
   let index = 0;
   while (index < lines.length) {
@@ -128,7 +128,7 @@ export function pairChangedLines(lines: DiffLine[]): Array<[number, number]> {
     }
 
     const paired = Math.min(addStart - delStart, index - addStart);
-    for (let offset = 0; offset < paired; offset++) {
+    for (let offset = 0; offset < paired; offset += 1) {
       pairs.push([delStart + offset, addStart + offset]);
     }
   }

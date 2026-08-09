@@ -47,26 +47,22 @@ export async function highlightCode(
   return highlighter.codeToHtml(text, { lang: language, theme: THEME });
 }
 
-const HTML_ESCAPES: Record<string, string> = {
-  "&": "&amp;",
-  "<": "&lt;",
-  ">": "&gt;",
-};
-
-function escapeHtml(text: string): string {
-  return text.replace(/[&<>]/g, (match) => HTML_ESCAPES[match]);
+export interface CodeToken {
+  color?: string;
+  text: string;
 }
 
 /**
- * Highlights a snippet and returns one markup string per input line, so a
- * caller that renders line-by-line — the diff view — can colour each row
- * without re-tokenizing. Returns null for plain text or an unknown grammar;
- * the caller renders the raw text instead.
+ * Highlights a snippet and returns one token row per input line, so a caller
+ * that renders line-by-line — the diff view — can compose syntax colour with
+ * its own decoration (word-level change marks) instead of receiving opaque
+ * markup. Returns null for plain text or an unknown grammar; the caller
+ * renders the raw text instead.
  */
-export async function highlightCodeLines(
+export async function highlightCodeTokens(
   text: string,
   language: string
-): Promise<string[] | null> {
+): Promise<CodeToken[][] | null> {
   if (language === "text") {
     return null;
   }
@@ -85,12 +81,7 @@ export async function highlightCodeLines(
       theme: THEME,
     });
     return tokens.map((line) =>
-      line
-        .map(
-          (token) =>
-            `<span style="color:${token.color ?? "inherit"}">${escapeHtml(token.content)}</span>`
-        )
-        .join("")
+      line.map((token) => ({ color: token.color, text: token.content }))
     );
   } catch {
     return null;
