@@ -4,8 +4,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { NODE_HEIGHT, NODE_WIDTH } from "@/lib/branch/layout";
 import { detachedLabel } from "@/lib/git/naming";
 import {
-  conversationKey,
-  countTasks,
+  agentActivity,
+  selectSession,
   useAgentStore,
 } from "@/stores/agent-store";
 import type { CanvasNode } from "@/types/branch";
@@ -36,7 +36,7 @@ export function branchLabel(node: CanvasNode): string {
 }
 
 function BranchNodeCard({ data }: NodeProps & { data: BranchNodeData }) {
-  const { isSelected, node, projectFolder } = data;
+  const { isSelected, node } = data;
 
   if (data.isDraft || data.isRenaming) {
     return (
@@ -53,26 +53,17 @@ function BranchNodeCard({ data }: NodeProps & { data: BranchNodeData }) {
     );
   }
 
-  return (
-    <BranchCard
-      data={data}
-      isSelected={isSelected}
-      node={node}
-      projectFolder={projectFolder}
-    />
-  );
+  return <BranchCard data={data} isSelected={isSelected} node={node} />;
 }
 
 function BranchCard({
   data,
   isSelected,
   node,
-  projectFolder,
 }: {
   data: BranchNodeData;
   isSelected: boolean;
   node: CanvasNode;
-  projectFolder: string;
 }) {
   const { onDelete, onStartChild } = data;
 
@@ -92,12 +83,8 @@ function BranchCard({
     [onStartChild]
   );
 
-  const items = useAgentStore(
-    (state) =>
-      state.conversations[conversationKey(projectFolder, node.id)]?.items
-  );
-  const counts = useMemo(() => countTasks(items), [items]);
-  const total = counts.done + counts.pending + counts.running;
+  const session = useAgentStore((state) => selectSession(state, node.id));
+  const activity = useMemo(() => agentActivity(session), [session]);
 
   return (
     <div className="relative" style={CARD_SIZE}>
@@ -141,16 +128,13 @@ function BranchCard({
             </span>
           ) : null}
 
-          {total > 0 && !node.prunable ? (
+          {(activity.running || activity.needsPermission) && !node.prunable ? (
             <span className="flex items-center gap-2 text-[10px] text-bw-muted leading-none">
-              {counts.pending > 0 ? (
-                <StatBadge color="bg-bw-pending" value={counts.pending} />
+              {activity.needsPermission ? (
+                <StatBadge color="bg-bw-pending" title="Needs approval" />
               ) : null}
-              {counts.running > 0 ? (
-                <StatBadge color="bg-bw-running" pulse value={counts.running} />
-              ) : null}
-              {counts.done > 0 ? (
-                <StatBadge color="bg-bw-done" value={counts.done} />
+              {activity.running ? (
+                <StatBadge color="bg-bw-running" pulse title="Agent running" />
               ) : null}
             </span>
           ) : null}
@@ -301,23 +285,21 @@ function BranchNameEditor({
 function StatBadge({
   color,
   pulse,
-  value,
+  title,
 }: {
   color: string;
   pulse?: boolean;
-  value: number;
+  title: string;
 }) {
   return (
-    <span className="flex items-center gap-1">
-      <span
-        className={cn(
-          "size-1.5 rounded-full",
-          color,
-          pulse && "animate-pulse motion-reduce:animate-none"
-        )}
-      />
-      {value}
-    </span>
+    <span
+      className={cn(
+        "size-1.5 rounded-full",
+        color,
+        pulse && "animate-pulse motion-reduce:animate-none"
+      )}
+      title={title}
+    />
   );
 }
 

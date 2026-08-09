@@ -1,174 +1,189 @@
 import { create } from "zustand";
+import {
+  agentHistory,
+  attachAgent,
+  getAgentConfig,
+  interruptAgent,
+  respondAgentPermission,
+  sendAgentMessage,
+  setAgentConfig,
+} from "@/actions/agent";
+import {
+  type ConversationState,
+  emptyConversation,
+  foldEvent,
+} from "@/lib/agent/fold";
+import type { AgentConfig, AgentEvent } from "@/types/agent";
 
-export type AgentTaskStatus = "queued" | "running" | "done";
-
-export interface AgentMessage {
-  id: string;
-  kind: "message";
-  role: "assistant" | "user";
-  text: string;
+export interface AgentSession {
+  attached: boolean;
+  config: AgentConfig | null;
+  conversation: ConversationState;
+  hasConversation: boolean;
 }
 
-export interface AgentTask {
-  agent: string;
-  description: string;
-  id: string;
-  kind: "task";
-  status: AgentTaskStatus;
+const realActions = {
+  agentHistory,
+  attachAgent,
+  getAgentConfig,
+  interruptAgent,
+  respondAgentPermission,
+  sendAgentMessage,
+  setAgentConfig,
+};
+
+type AgentActionsShape = typeof realActions;
+
+let actions: AgentActionsShape = realActions;
+
+/** Test seam: swap the IPC-backed actions for fakes. */
+export function _setAgentActionsForTests(fake: AgentActionsShape): void {
+  actions = fake;
 }
 
-export type ConversationItem = AgentMessage | AgentTask;
+const EMPTY_SESSION: AgentSession = {
+  attached: false,
+  config: null,
+  conversation: emptyConversation(),
+  hasConversation: false,
+};
 
-interface Conversation {
-  items: ConversationItem[];
-  thinking: boolean;
+/**
+ * The transcript contains every event ever flushed, including the active
+ * turn's; the attach replay re-delivers exactly that active turn. Trimming
+ * history back to its last turn-done removes the overlap, so fold(history') +
+ * fold(replay + live) is duplicate-free and deterministic.
+ */
+export function trimToLastTurnDone(events: AgentEvent[]): AgentEvent[] {
+  const lastDone = events.findLastIndex((event) => event.kind === "turn-done");
+  return lastDone < 0 ? [] : events.slice(0, lastDone + 1);
 }
 
 interface AgentStoreState {
-  clear: (key: string) => void;
-  conversations: Record<string, Conversation>;
-  send: (key: string, branchName: string, text: string) => void;
+  close: (worktreePath: string) => void;
+  configure: (worktreePath: string, config: AgentConfig) => Promise<void>;
+  interrupt: (worktreePath: string) => Promise<void>;
+  open: (worktreePath: string) => Promise<void>;
+  reset: () => void;
+  respond: (
+    worktreePath: string,
+    requestId: string,
+    approved: boolean
+  ) => Promise<void>;
+  sendMessage: (worktreePath: string, text: string) => Promise<void>;
+  sessions: Record<string, AgentSession>;
 }
 
-const EMPTY: Conversation = { items: [], thinking: false };
+const controllers = new Map<string, AbortController>();
 
-/**
- * Canned responses. The shape of the exchange — a short plan, then a task card
- * that moves through its states — is what the real agent will produce, so the
- * panel can be tuned against it before any of it is wired up.
- */
-const REPLIES: { agent: string; reply: string; task: string }[] = [
-  {
-    agent: "Planner Agent",
-    reply:
-      "Reading the tree on {branch} first — I want to see what already exists before proposing changes. I'll come back with a short plan and the files I expect to touch.",
-    task: "Mapping the module graph and entry points",
-  },
-  {
-    agent: "Implementer Agent",
-    reply:
-      "Working this on {branch} so nothing lands on main until you've seen it. I'll keep the change surface small and report every file I edit.",
-    task: "Drafting the change set",
-  },
-  {
-    agent: "Review Agent",
-    reply:
-      "I'll diff {branch} against its parent and flag anything that looks unintended — dead code, missed call sites, tests that no longer cover the path.",
-    task: "Reviewing the diff against the parent branch",
-  },
-  {
-    agent: "Test Agent",
-    reply:
-      "Running the suite on {branch}. If something fails I'll fix it and re-run rather than handing you a red build.",
-    task: "Running the test suite",
-  },
-];
-
-function newId(prefix: string): string {
-  return `${prefix}_${Math.random().toString(36).slice(2, 9)}${Date.now().toString(36)}`;
-}
-
-export const useAgentStore = create<AgentStoreState>()((set, get) => {
-  function patch(key: string, update: (conv: Conversation) => Conversation) {
+export const useAgentStore = create<AgentStoreState>()((set) => {
+  function patch(
+    worktreePath: string,
+    update: (session: AgentSession) => AgentSession
+  ): void {
     set((state) => ({
-      conversations: {
-        ...state.conversations,
-        [key]: update(state.conversations[key] ?? EMPTY),
+      sessions: {
+        ...state.sessions,
+        [worktreePath]: update(state.sessions[worktreePath] ?? EMPTY_SESSION),
       },
     }));
   }
 
-  function setTaskStatus(key: string, taskId: string, status: AgentTaskStatus) {
-    patch(key, (conv) => ({
-      ...conv,
-      items: conv.items.map((item) =>
-        item.kind === "task" && item.id === taskId ? { ...item, status } : item
-      ),
-    }));
-  }
-
   return {
-    clear: (key) => patch(key, () => ({ items: [], thinking: false })),
+    close: (worktreePath) => {
+      controllers.get(worktreePath)?.abort();
+      controllers.delete(worktreePath);
+      patch(worktreePath, (session) => ({ ...session, attached: false }));
+    },
 
-    conversations: {},
+    configure: async (worktreePath, config) => {
+      await actions.setAgentConfig(worktreePath, config);
+      patch(worktreePath, (session) => ({ ...session, config }));
+    },
 
-    send: (key, branchName, text) => {
-      const trimmed = text.trim();
-      if (trimmed.length === 0 || get().conversations[key]?.thinking) {
-        return;
-      }
+    interrupt: async (worktreePath) => {
+      await actions.interruptAgent(worktreePath);
+    },
 
-      patch(key, (conv) => ({
-        items: [
-          ...conv.items,
-          { id: newId("msg"), kind: "message", role: "user", text: trimmed },
-        ],
-        thinking: true,
+    open: async (worktreePath) => {
+      controllers.get(worktreePath)?.abort();
+      const controller = new AbortController();
+      controllers.set(worktreePath, controller);
+
+      const [meta, history] = await Promise.all([
+        actions.getAgentConfig(worktreePath),
+        actions.agentHistory(worktreePath),
+      ]);
+      const folded = trimToLastTurnDone(history).reduce(
+        foldEvent,
+        emptyConversation()
+      );
+      patch(worktreePath, () => ({
+        attached: true,
+        config: meta.config,
+        conversation: folded,
+        hasConversation: meta.hasConversation,
       }));
 
-      const turn = get().conversations[key]?.items.length ?? 0;
-      const canned = REPLIES[Math.floor(turn / 2) % REPLIES.length];
-      const taskId = newId("task");
-
-      setTimeout(() => {
-        patch(key, (conv) => ({
-          items: [
-            ...conv.items,
-            {
-              id: newId("msg"),
-              kind: "message",
-              role: "assistant",
-              text: canned.reply.replace("{branch}", branchName),
-            },
-            {
-              agent: canned.agent,
-              description: canned.task,
-              id: taskId,
-              kind: "task",
-              status: "queued",
-            },
-          ],
-          thinking: false,
-        }));
-      }, 650);
-
-      setTimeout(() => setTaskStatus(key, taskId, "running"), 1500);
-      setTimeout(() => setTaskStatus(key, taskId, "done"), 5200);
+      const stream = await actions.attachAgent(worktreePath, controller.signal);
+      (async () => {
+        try {
+          for await (const event of stream) {
+            if (controller.signal.aborted) {
+              return;
+            }
+            patch(worktreePath, (session) => ({
+              ...session,
+              conversation: foldEvent(session.conversation, event),
+              hasConversation: true,
+            }));
+          }
+        } catch {
+          // Stream ended by reload/abort: state stays; reopen re-syncs.
+        }
+      })();
     },
+
+    reset: () => {
+      for (const controller of controllers.values()) {
+        controller.abort();
+      }
+      controllers.clear();
+      set({ sessions: {} });
+    },
+
+    respond: async (worktreePath, requestId, approved) => {
+      await actions.respondAgentPermission({
+        approved,
+        requestId,
+        worktreePath,
+      });
+    },
+
+    sendMessage: async (worktreePath, text) => {
+      await actions.sendAgentMessage(worktreePath, text);
+    },
+
+    sessions: {},
   };
 });
 
-export interface TaskCounts {
-  done: number;
-  pending: number;
-  running: number;
-}
-
-/** Tallies task cards by status. Pure so the node badge can memoize on items. */
-export function countTasks(items: ConversationItem[] | undefined): TaskCounts {
-  const counts: TaskCounts = { done: 0, pending: 0, running: 0 };
-  for (const item of items ?? []) {
-    if (item.kind !== "task") {
-      continue;
-    }
-    if (item.status === "done") {
-      counts.done += 1;
-    } else if (item.status === "running") {
-      counts.running += 1;
-    } else {
-      counts.pending += 1;
-    }
-  }
-  return counts;
-}
-
-export function conversationKey(path: string, nodeId: string): string {
-  return `${path}::${nodeId}`;
-}
-
-export function selectConversation(
+export function selectSession(
   state: AgentStoreState,
-  key: string
-): Conversation {
-  return state.conversations[key] ?? EMPTY;
+  worktreePath: string
+): AgentSession {
+  return state.sessions[worktreePath] ?? EMPTY_SESSION;
+}
+
+/** Node-badge derivation; replaces countTasks. */
+export function agentActivity(session: AgentSession): {
+  needsPermission: boolean;
+  running: boolean;
+} {
+  return {
+    needsPermission: session.conversation.items.some(
+      (item) => item.kind === "permission" && item.state === "pending"
+    ),
+    running: session.conversation.activeTurnId !== null,
+  };
 }

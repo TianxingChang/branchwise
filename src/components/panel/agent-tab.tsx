@@ -1,23 +1,7 @@
 import { ArrowUp, Sparkles } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
-import {
-  type AgentTaskStatus,
-  conversationKey,
-  useAgentStore,
-} from "@/stores/agent-store";
-import { cn } from "@/utils/tailwind";
-
-const STATUS_STYLE: Record<AgentTaskStatus, string> = {
-  done: "bg-bw-done/10 text-bw-done",
-  queued: "bg-bw-subtle text-bw-muted",
-  running: "bg-bw-running/10 text-bw-running",
-};
-
-const STATUS_LABEL: Record<AgentTaskStatus, string> = {
-  done: "Done",
-  queued: "Queued",
-  running: "Running",
-};
+import type { ConversationItem } from "@/lib/agent/fold";
+import { selectSession, useAgentStore } from "@/stores/agent-store";
 
 interface AgentTabProps {
   branchLabel: string;
@@ -25,38 +9,47 @@ interface AgentTabProps {
   projectFolder: string;
 }
 
-export default function AgentTab({
-  branchLabel,
-  nodeId,
-  projectFolder,
-}: AgentTabProps) {
-  const key = conversationKey(projectFolder, nodeId);
-  const items = useAgentStore((state) => state.conversations[key]?.items);
-  const thinking = useAgentStore(
-    (state) => state.conversations[key]?.thinking ?? false
-  );
-  const send = useAgentStore((state) => state.send);
+/**
+ * Interim rendering on top of the real store (Task 11): items map to plain
+ * rows and there is no config bar, tool/permission cards, or interrupt
+ * control yet — Task 12 rebuilds this on the same store shape with the full
+ * card set.
+ */
+export default function AgentTab({ branchLabel, nodeId }: AgentTabProps) {
+  const session = useAgentStore((state) => selectSession(state, nodeId));
+  const open = useAgentStore((state) => state.open);
+  const close = useAgentStore((state) => state.close);
+  const sendMessage = useAgentStore((state) => state.sendMessage);
 
   const [draft, setDraft] = useState("");
   const scrollRef = useRef<HTMLDivElement>(null);
 
-  // items/thinking are triggers, not references: the effect re-runs to pin the
-  // view to the newest message. Removing them silently breaks auto-scroll.
+  useEffect(() => {
+    open(nodeId);
+    return () => close(nodeId);
+  }, [close, nodeId, open]);
+
+  const { conversation } = session;
+  const running = conversation.activeTurnId !== null;
+
+  // items/streamingText are triggers, not references: the effect re-runs to
+  // pin the view to the newest content. Removing them silently breaks
+  // auto-scroll.
   // biome-ignore lint/correctness/useExhaustiveDependencies: see above
   useEffect(() => {
     const node = scrollRef.current;
     if (node) {
       node.scrollTop = node.scrollHeight;
     }
-  }, [items, thinking]);
+  }, [conversation.items, conversation.streamingText]);
 
   const submit = useCallback(() => {
-    if (draft.trim().length === 0 || thinking) {
+    if (draft.trim().length === 0 || running) {
       return;
     }
-    send(key, branchLabel, draft);
+    sendMessage(nodeId, draft);
     setDraft("");
-  }, [branchLabel, draft, key, send, thinking]);
+  }, [draft, nodeId, running, sendMessage]);
 
   const handleChange = useCallback(
     (event: React.ChangeEvent<HTMLTextAreaElement>) => {
@@ -75,28 +68,25 @@ export default function AgentTab({
     [submit]
   );
 
+  const hasContent = conversation.items.length > 0 || running;
+
   return (
     <div className="flex h-full flex-col">
       <div
         className="min-h-0 flex-1 space-y-3 overflow-y-auto px-4 py-4"
         ref={scrollRef}
       >
-        {items && items.length > 0 ? null : <EmptyConversation />}
+        {hasContent ? null : <EmptyConversation />}
 
-        {items?.map((item) =>
-          item.kind === "message" ? (
-            <Message key={item.id} role={item.role} text={item.text} />
-          ) : (
-            <TaskCard
-              agent={item.agent}
-              description={item.description}
-              key={item.id}
-              status={item.status}
-            />
-          )
-        )}
+        {conversation.items.map((item) => (
+          <ConversationItemRow item={item} key={item.id} />
+        ))}
 
-        {thinking ? (
+        {conversation.streamingText ? (
+          <AssistantText text={conversation.streamingText} />
+        ) : null}
+
+        {running && !conversation.streamingText ? (
           <p className="pl-6 text-[12.5px] text-bw-muted">Thinking…</p>
         ) : null}
       </div>
@@ -105,6 +95,7 @@ export default function AgentTab({
         <div className="flex items-end gap-2 rounded-xl border border-bw-hairline bg-bw-canvas/60 py-2 pr-2 pl-3 focus-within:border-bw-edge">
           <textarea
             className="max-h-28 min-h-6 flex-1 resize-none bg-transparent text-[12.5px] text-bw-ink leading-relaxed outline-none placeholder:text-bw-muted"
+            disabled={running}
             onChange={handleChange}
             onKeyDown={handleKeyDown}
             placeholder={`Ask the agent to work on ${branchLabel}…`}
@@ -114,7 +105,7 @@ export default function AgentTab({
           <button
             aria-label="Send message"
             className="flex size-7 shrink-0 items-center justify-center rounded-full bg-bw-ink text-white transition-opacity disabled:opacity-25"
-            disabled={draft.trim().length === 0 || thinking}
+            disabled={draft.trim().length === 0 || running}
             onClick={submit}
             type="button"
           >
@@ -138,57 +129,49 @@ function EmptyConversation() {
   );
 }
 
-function Message({ role, text }: { role: "assistant" | "user"; text: string }) {
-  if (role === "user") {
+function AssistantText({ text }: { text: string }) {
+  return (
+    <div className="flex gap-2">
+      <Sparkles className="mt-0.5 shrink-0 text-bw-muted" size={13} />
+      <p className="whitespace-pre-wrap text-[12.5px] text-bw-ink leading-relaxed">
+        {text}
+      </p>
+    </div>
+  );
+}
+
+function ConversationItemRow({ item }: { item: ConversationItem }) {
+  if (item.kind === "user") {
     return (
       <div className="flex justify-end">
         <p className="max-w-[85%] rounded-xl bg-bw-subtle px-3 py-2 text-[12.5px] text-bw-ink leading-relaxed">
-          {text}
+          {item.text}
         </p>
       </div>
     );
   }
 
-  return (
-    <div className="flex gap-2">
-      <Sparkles className="mt-0.5 shrink-0 text-bw-muted" size={13} />
-      <p className="text-[12.5px] text-bw-ink leading-relaxed">{text}</p>
-    </div>
-  );
-}
+  if (item.kind === "assistant") {
+    return <AssistantText text={item.text} />;
+  }
 
-function TaskCard({
-  agent,
-  description,
-  status,
-}: {
-  agent: string;
-  description: string;
-  status: AgentTaskStatus;
-}) {
+  if (item.kind === "tool") {
+    return (
+      <p className="pl-5 text-[12px] text-bw-muted leading-relaxed">
+        {item.name} — {item.state}: {item.detail}
+      </p>
+    );
+  }
+
+  if (item.kind === "permission") {
+    return (
+      <p className="pl-5 text-[12px] text-bw-muted leading-relaxed">
+        {item.toolName} wants to run "{item.detail}" — {item.state}
+      </p>
+    );
+  }
+
   return (
-    <div className="flex items-center gap-2.5 rounded-xl border border-bw-hairline bg-bw-canvas/50 px-3 py-2.5">
-      <span
-        className={cn(
-          "size-1.5 shrink-0 rounded-full",
-          status === "done" && "bg-bw-done",
-          status === "running" &&
-            "animate-pulse bg-bw-running motion-reduce:animate-none",
-          status === "queued" && "bg-bw-edge"
-        )}
-      />
-      <span className="shrink-0 text-[12px] text-bw-ink">{agent}</span>
-      <span className="min-w-0 flex-1 truncate text-[12px] text-bw-muted">
-        {description}
-      </span>
-      <span
-        className={cn(
-          "shrink-0 rounded-md px-1.5 py-0.5 text-[10.5px]",
-          STATUS_STYLE[status]
-        )}
-      >
-        {STATUS_LABEL[status]}
-      </span>
-    </div>
+    <p className="text-[12.5px] text-bw-pending leading-relaxed">{item.text}</p>
   );
 }
