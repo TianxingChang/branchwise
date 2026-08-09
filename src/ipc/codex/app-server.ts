@@ -124,6 +124,11 @@ export class CodexAppServer {
     child.stdout.on("data", onData);
     child.onExit(() => {
       child.stdout.removeListener("data", onData);
+      if (this.child !== child) {
+        // A superseded generation's delayed exit must not tear down the
+        // live generation's state — only its own listener above.
+        return;
+      }
       for (const [, entry] of this.pending) {
         clearTimeout(entry.timer);
         entry.reject(new AgentDriverError("codex app-server exited."));

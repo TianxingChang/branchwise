@@ -139,6 +139,20 @@ describe("CodexAppServer", () => {
     expect(start).toBeDefined();
     children[1]?.send({ id: start?.id, result: { threadId: "th_2" } });
     await expect(second).resolves.toEqual({ threadId: "th_2" });
+
+    // A stale exit from the dead generation must not touch the live one:
+    // re-firing generation one's exit callbacks and then making a third
+    // request must neither respawn nor break generation two.
+    children[0]?.child.kill();
+    const third = client.request("thread/status", {});
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    expect(spawned).toBe(2);
+    const status = children[1]?.received.find(
+      (m) => m.method === "thread/status"
+    );
+    expect(status).toBeDefined();
+    children[1]?.send({ id: status?.id, result: { ok: true } });
+    await expect(third).resolves.toEqual({ ok: true });
   });
 
   test("a synchronously throwing request handler becomes an error reply", async () => {
