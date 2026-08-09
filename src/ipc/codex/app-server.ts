@@ -113,8 +113,17 @@ export class CodexAppServer {
 
     const child = this.spawnChild();
     this.child = child;
-    child.stdout.on("data", (chunk: Buffer) => this.receive(chunk));
+    // Fresh generation, fresh framing state: a torn line from a dead child
+    // must never prefix the next child's first response.
+    this.buffer = "";
+    const onData = (chunk: Buffer) => {
+      if (this.child === child) {
+        this.receive(chunk);
+      }
+    };
+    child.stdout.on("data", onData);
     child.onExit(() => {
+      child.stdout.removeListener("data", onData);
       for (const [, entry] of this.pending) {
         clearTimeout(entry.timer);
         entry.reject(new AgentDriverError("codex app-server exited."));
@@ -122,18 +131,31 @@ export class CodexAppServer {
       this.pending.clear();
       this.handshake = null;
       this.child = null;
+      this.buffer = "";
     });
 
     this.handshake = (async () => {
-      await this.rawRequest("initialize", {
-        capabilities: {},
-        clientInfo: {
-          name: "branchwise",
-          title: "branchwise",
-          version: "0.0.1",
-        },
-      });
-      this.send({ method: "initialized" });
+      try {
+        await this.rawRequest("initialize", {
+          capabilities: {},
+          clientInfo: {
+            name: "branchwise",
+            title: "branchwise",
+            version: "0.0.1",
+          },
+        });
+        this.send({ method: "initialized" });
+      } catch (error) {
+        // A failed handshake must not wedge the instance or leak the child:
+        // reset so the next request retries against a fresh process.
+        if (this.child === child) {
+          this.child = null;
+          child.kill("SIGTERM");
+        }
+        this.handshake = null;
+        this.buffer = "";
+        throw error;
+      }
     })();
     return this.handshake;
   }
@@ -185,11 +207,19 @@ export class CodexAppServer {
         }
         return;
       }
-      // Server→client request: first handler that answers wins.
+      // Server→client request: first handler that answers wins. A handler
+      // that throws synchronously must become an error reply, not an
+      // exception escaping the stream's data listener.
       const [handler] = [...this.requestHandlers];
-      Promise.resolve(
-        handler ? handler(message.method, message.params) : undefined
-      )
+      let outcome: Promise<unknown>;
+      try {
+        outcome = Promise.resolve(
+          handler ? handler(message.method, message.params) : undefined
+        );
+      } catch (error) {
+        outcome = Promise.reject(error);
+      }
+      outcome
         .then((result) => this.send({ id: message.id as number, result }))
         .catch((error: unknown) =>
           this.send({

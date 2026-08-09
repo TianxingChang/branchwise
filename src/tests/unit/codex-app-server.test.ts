@@ -113,4 +113,48 @@ describe("CodexAppServer", () => {
     client.dispose();
     await expect(pending).rejects.toThrow();
   });
+
+  test("a child crash resets state so the next request reconnects cleanly", async () => {
+    let spawned = 0;
+    const children: ReturnType<typeof fakeChild>[] = [];
+    const client = new CodexAppServer(() => {
+      spawned += 1;
+      const fake = fakeChild();
+      children.push(fake);
+      return fake.child;
+    });
+    const first = client.request("thread/start", {});
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    // Die mid-line: the torn fragment must not prefix generation two.
+    (children[0]?.child.stdout as PassThrough).write('{"partial');
+    children[0]?.child.kill();
+    await expect(first).rejects.toThrow();
+
+    const second = client.request("thread/start", {});
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    expect(spawned).toBe(2);
+    const start = children[1]?.received.find(
+      (m) => m.method === "thread/start"
+    );
+    expect(start).toBeDefined();
+    children[1]?.send({ id: start?.id, result: { threadId: "th_2" } });
+    await expect(second).resolves.toEqual({ threadId: "th_2" });
+  });
+
+  test("a synchronously throwing request handler becomes an error reply", async () => {
+    const { child, received, send } = fakeChild();
+    const client = new CodexAppServer(() => child);
+    client.onRequest(() => {
+      throw new Error("handler blew up");
+    });
+    const pending = client.request("thread/start", {});
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    send({ id: 55, method: "item/commandExecution/requestApproval", params: {} });
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    const reply = received.find((m) => m.id === 55 && "error" in m);
+    expect(reply).toBeDefined();
+    const start = received.find((m) => m.method === "thread/start");
+    send({ id: start?.id, result: {} });
+    await pending;
+  });
 });
