@@ -756,15 +756,18 @@ git commit -m "Persist agent registry and transcripts under app support"
 
 ---
 
-### Task 3: Claude executable resolver
+### Task 3: Executable resolution (shared helper + Claude wrapper)
 
 **Files:**
+- Create: `src/ipc/agent/find-executable.ts` (shared with Task 7's codex resolver — the search logic exists once)
 - Create: `src/ipc/claude/executable.ts`
 - Test: `src/tests/unit/claude-executable.test.ts`
 
 **Interfaces:**
 - Consumes: nothing.
-- Produces: `resolveClaudeExecutable(env?: NodeJS.ProcessEnv): Promise<string | null>` — absolute path to the user's `claude`, or null with no throw. Search order: `CLAUDE_BIN` env override → `~/.local/bin/claude` → `~/.claude/local/claude` → `/opt/homebrew/bin/claude` → `/usr/local/bin/claude` → first hit on `PATH`. Absolute paths only.
+- Produces:
+  - `find-executable.ts`: `findExecutable(input: { binaryName: string; env: NodeJS.ProcessEnv; envOverride?: string; extraCandidates: string[] }): Promise<string | null>` — checks the env-override path, then `extraCandidates`, then each `PATH` directory joined with `binaryName`. Absolute, executable paths only; never throws.
+  - `executable.ts`: `resolveClaudeExecutable(env?: NodeJS.ProcessEnv): Promise<string | null>` — thin wrapper over `findExecutable`. Search order: `CLAUDE_BIN` env override → `~/.local/bin/claude` → `~/.claude/local/claude` → `/opt/homebrew/bin/claude` → `/usr/local/bin/claude` → first hit on `PATH`.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -825,7 +828,7 @@ Expected: FAIL — module does not exist.
 
 - [ ] **Step 3: Write the implementation**
 
-`src/ipc/claude/executable.ts`:
+`src/ipc/agent/find-executable.ts`:
 
 ```ts
 import { access, constants } from "node:fs/promises";
@@ -841,38 +844,62 @@ async function executable(candidate: string): Promise<boolean> {
 }
 
 /**
- * Finds the user's own `claude` binary. branchwise never bundles a runtime and
- * never stores credentials: the user's install carries their subscription
- * (decision 2). A Finder-launched Electron has a minimal PATH, so well-known
- * install locations are checked before PATH.
+ * Finds a user-installed CLI. branchwise never bundles a runtime and never
+ * stores credentials: the user's install carries their subscription
+ * (decision 2). A Finder-launched Electron has a minimal PATH, so callers
+ * pass well-known install locations to check before PATH.
  */
-export async function resolveClaudeExecutable(
-  env: NodeJS.ProcessEnv = process.env
-): Promise<string | null> {
-  const home = env.HOME ?? "";
-  const candidates = [
-    env.CLAUDE_BIN,
-    home ? path.join(home, ".local", "bin", "claude") : undefined,
-    home ? path.join(home, ".claude", "local", "claude") : undefined,
-    "/opt/homebrew/bin/claude",
-    "/usr/local/bin/claude",
-  ];
+export async function findExecutable(input: {
+  binaryName: string;
+  env: NodeJS.ProcessEnv;
+  envOverride?: string;
+  extraCandidates: string[];
+}): Promise<string | null> {
+  const candidates = [input.envOverride, ...input.extraCandidates];
   for (const candidate of candidates) {
     if (candidate && path.isAbsolute(candidate) && (await executable(candidate))) {
       return candidate;
     }
   }
 
-  for (const dir of (env.PATH ?? "").split(path.delimiter)) {
+  for (const dir of (input.env.PATH ?? "").split(path.delimiter)) {
     if (dir.length === 0) {
       continue;
     }
-    const candidate = path.join(dir, "claude");
+    const candidate = path.join(dir, input.binaryName);
     if (path.isAbsolute(candidate) && (await executable(candidate))) {
       return candidate;
     }
   }
   return null;
+}
+```
+
+`src/ipc/claude/executable.ts`:
+
+```ts
+import path from "node:path";
+import { findExecutable } from "@/ipc/agent/find-executable";
+
+export function resolveClaudeExecutable(
+  env: NodeJS.ProcessEnv = process.env
+): Promise<string | null> {
+  const home = env.HOME ?? "";
+  return findExecutable({
+    binaryName: "claude",
+    env,
+    envOverride: env.CLAUDE_BIN,
+    extraCandidates: [
+      ...(home
+        ? [
+            path.join(home, ".local", "bin", "claude"),
+            path.join(home, ".claude", "local", "claude"),
+          ]
+        : []),
+      "/opt/homebrew/bin/claude",
+      "/usr/local/bin/claude",
+    ],
+  });
 }
 ```
 
@@ -884,7 +911,7 @@ Expected: PASS.
 - [ ] **Step 5: Commit**
 
 ```bash
-git add src/ipc/claude/executable.ts src/tests/unit/claude-executable.test.ts
+git add src/ipc/agent/find-executable.ts src/ipc/claude/executable.ts src/tests/unit/claude-executable.test.ts
 git commit -m "Resolve the user's claude binary without bundling one"
 ```
 
@@ -1874,46 +1901,27 @@ Expected: FAIL — module does not exist.
 
 - [ ] **Step 3: Write the implementation**
 
-`src/ipc/codex/executable.ts` (same pattern as Task 3, names swapped):
+`src/ipc/codex/executable.ts` (thin wrapper over Task 3's shared
+`findExecutable` — do not duplicate the search loop):
 
 ```ts
-import { access, constants } from "node:fs/promises";
 import path from "node:path";
+import { findExecutable } from "@/ipc/agent/find-executable";
 
-async function executable(candidate: string): Promise<boolean> {
-  try {
-    await access(candidate, constants.X_OK);
-    return true;
-  } catch {
-    return false;
-  }
-}
-
-export async function resolveCodexExecutable(
+export function resolveCodexExecutable(
   env: NodeJS.ProcessEnv = process.env
 ): Promise<string | null> {
   const home = env.HOME ?? "";
-  const candidates = [
-    env.CODEX_BIN,
-    home ? path.join(home, ".local", "bin", "codex") : undefined,
-    "/opt/homebrew/bin/codex",
-    "/usr/local/bin/codex",
-  ];
-  for (const candidate of candidates) {
-    if (candidate && path.isAbsolute(candidate) && (await executable(candidate))) {
-      return candidate;
-    }
-  }
-  for (const dir of (env.PATH ?? "").split(path.delimiter)) {
-    if (dir.length === 0) {
-      continue;
-    }
-    const candidate = path.join(dir, "codex");
-    if (path.isAbsolute(candidate) && (await executable(candidate))) {
-      return candidate;
-    }
-  }
-  return null;
+  return findExecutable({
+    binaryName: "codex",
+    env,
+    envOverride: env.CODEX_BIN,
+    extraCandidates: [
+      ...(home ? [path.join(home, ".local", "bin", "codex")] : []),
+      "/opt/homebrew/bin/codex",
+      "/usr/local/bin/codex",
+    ],
+  });
 }
 ```
 
