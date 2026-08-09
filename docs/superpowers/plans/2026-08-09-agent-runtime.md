@@ -157,9 +157,30 @@ describe("foldEvent", () => {
     ]);
     expect(state.items.at(-1)).toMatchObject({
       kind: "assistant",
+      stopReason: "interrupted",
       text: "half a thou",
     });
-    expect(state.items.at(-1)).toHaveProperty("interrupted", true);
+  });
+
+  test("a tool-only turn still commits a turn marker carrying cost", () => {
+    const state = foldAll([
+      { kind: "turn-started", turnId: "t1" },
+      { kind: "tool-started", toolId: "u1", name: "Bash", detail: "npm test" },
+      { kind: "tool-finished", toolId: "u1", ok: true, detail: "ok" },
+      {
+        kind: "turn-done",
+        turnId: "t1",
+        stopReason: "completed",
+        costUsd: 0.05,
+        usage: null,
+      },
+    ]);
+    expect(state.items.at(-1)).toMatchObject({
+      costUsd: 0.05,
+      kind: "assistant",
+      stopReason: "completed",
+      text: "",
+    });
   });
 
   test("error event becomes a notice item", () => {
@@ -275,8 +296,8 @@ export type ConversationItem =
   | {
       costUsd: number | null;
       id: string;
-      interrupted: boolean;
       kind: "assistant";
+      stopReason: "completed" | "interrupted" | "error";
       text: string;
       thinking: string;
       usage: AgentUsage | null;
@@ -414,20 +435,20 @@ export function foldEvent(
       );
 
     case "turn-done": {
-      const flushed =
-        state.streamingText.length > 0 || state.streamingThinking.length > 0
-          ? withItem(state, {
-              costUsd: event.costUsd,
-              id: `turn-${event.turnId}`,
-              interrupted: event.stopReason === "interrupted",
-              kind: "assistant",
-              text: state.streamingText,
-              thinking: state.streamingThinking,
-              usage: event.usage,
-            })
-          : state;
+      // Every turn ends with a committed marker item, even when the model
+      // produced no prose: it is the one place cost, usage and the stop
+      // reason live (a tool-only turn would otherwise drop them all).
+      const done = withItem(state, {
+        costUsd: event.costUsd,
+        id: `turn-${event.turnId}`,
+        kind: "assistant",
+        stopReason: event.stopReason,
+        text: state.streamingText,
+        thinking: state.streamingThinking,
+        usage: event.usage,
+      });
       return {
-        ...flushed,
+        ...done,
         activeTurnId: null,
         streamingText: "",
         streamingThinking: "",
