@@ -2225,7 +2225,6 @@ export class CodexAppServer {
   private rawRequest(method: string, params: unknown): Promise<unknown> {
     const id = this.nextId;
     this.nextId += 1;
-    this.send({ id, method, params });
     return new Promise((resolve, reject) => {
       const timer = setTimeout(() => {
         this.pending.delete(id);
@@ -2233,7 +2232,11 @@ export class CodexAppServer {
           new AgentDriverError(`codex did not answer ${method} within 30s.`)
         );
       }, REQUEST_TIMEOUT_MS);
+      // Register BEFORE sending: a same-tick responder (the in-memory test
+      // fake — PassThrough delivers synchronously) would otherwise answer
+      // before the entry exists and the response would be dropped.
       this.pending.set(id, { reject, resolve, timer });
+      this.send({ id, method, params });
     });
   }
 
