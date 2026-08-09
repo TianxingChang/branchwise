@@ -5,6 +5,8 @@ import {
   repoSnapshotSchema,
   worktreeStatusSchema,
 } from "@/types/branch";
+import { diffSummarySchema, worktreeDiffSchema } from "@/types/diff";
+import { worktreeDiff, worktreeDiffSummary } from "./diff";
 import {
   createWorktree,
   deleteBranch,
@@ -129,6 +131,40 @@ export const status = os
       worktreePath: input.worktreePath,
     });
   });
+
+const diffInput = z.object({
+  parentBranch: z.string().nullable(),
+  path: z.string().min(1),
+  worktreePath: z.string().min(1),
+});
+
+/** The full parsed diff for the Diff tab — merge-base to worktree. */
+export const diff = os
+  .input(diffInput)
+  .output(worktreeDiffSchema)
+  .handler(({ input }) =>
+    expose(async () => {
+      const repo = await requireRepo(input.path);
+      return await worktreeDiff(repo, {
+        parentBranch: input.parentBranch,
+        worktreePath: input.worktreePath,
+      });
+    })
+  );
+
+/** Numstat totals for the Agent tab's compact strip. */
+export const diffSummary = os
+  .input(diffInput)
+  .output(diffSummarySchema)
+  .handler(({ input }) =>
+    expose(async () => {
+      const repo = await requireRepo(input.path);
+      return await worktreeDiffSummary(repo, {
+        parentBranch: input.parentBranch,
+        worktreePath: input.worktreePath,
+      });
+    })
+  );
 
 export const remove = os
   .input(

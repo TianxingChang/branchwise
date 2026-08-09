@@ -1,5 +1,7 @@
 import {
   create,
+  diff,
+  diffSummary,
   init,
   prune,
   remove,
@@ -11,6 +13,8 @@ import {
 
 export const repo = {
   create,
+  diff,
+  diffSummary,
   init,
   prune,
   remove,
