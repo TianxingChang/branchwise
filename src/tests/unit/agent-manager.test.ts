@@ -24,6 +24,7 @@ let base = "";
 /** A driver whose event stream the test hand-feeds. */
 function puppetDriver(id: "claude-code" | "codex" = "claude-code") {
   let push: ((event: AgentEvent | null) => void) | null = null;
+  let raise: ((error: Error) => void) | null = null;
   let lastInput: StartTurnInput | null = null;
   const driver: AgentDriver = {
     id,
@@ -31,15 +32,24 @@ function puppetDriver(id: "claude-code" | "codex" = "claude-code") {
     startTurn: (input) => {
       lastInput = input;
       const buffered: (AgentEvent | null)[] = [];
+      let pendingError: Error | null = null;
       let wake: (() => void) | null = null;
       push = (event) => {
         buffered.push(event);
         wake?.();
         wake = null;
       };
+      raise = (error) => {
+        pendingError = error;
+        wake?.();
+        wake = null;
+      };
       return {
         events: (async function* () {
           for (;;) {
+            if (pendingError) {
+              throw pendingError;
+            }
             const next = buffered.shift();
             if (next === null) {
               return;
@@ -71,6 +81,7 @@ function puppetDriver(id: "claude-code" | "codex" = "claude-code") {
     },
   };
   return {
+    crash: (error: Error) => raise?.(error),
     driver,
     end: () => push?.(null),
     feed: (event: AgentEvent) => push?.(event),
@@ -416,5 +427,110 @@ describe("agent session manager", () => {
     await shutdownAgents(0);
     await vi.advanceTimersByTimeAsync(10);
     expect(verdict).toBe(false);
+  });
+
+  // --- Review finding 2: send() had no synchronous latch, so two sends
+  // racing through the pre-start fs reads could both reach startTurn.
+  test("two racing sends accept exactly one", async () => {
+    const puppet = puppetDriver();
+    configureManager({
+      baseDir: base,
+      drivers: { "claude-code": puppet.driver },
+    });
+    await setConfig(WT, { driverId: "claude-code", tier: "ask" });
+
+    const [first, second] = await Promise.all([
+      send(WT, "one"),
+      send(WT, "two"),
+    ]);
+    const accepted = [first.accepted, second.accepted];
+    expect(accepted.filter(Boolean)).toHaveLength(1);
+    // The loser must have been refused synchronously (before startTurn), not
+    // by racing into a real turn of its own.
+    expect(accepted).toContain(false);
+
+    puppet.feed({
+      costUsd: null,
+      kind: "turn-done",
+      stopReason: "completed",
+      turnId: "t1",
+      usage: null,
+    });
+    puppet.end();
+  });
+
+  // --- Review finding 3: deltas flushed through separate pendingText /
+  // pendingThinking fields always emitted text before thinking, inverting a
+  // thinking→text transition inside one 50ms window.
+  test("a thinking-then-text transition inside one flush window keeps arrival order", async () => {
+    const puppet = puppetDriver();
+    configureManager({
+      baseDir: base,
+      drivers: { "claude-code": puppet.driver },
+    });
+    await setConfig(WT, { driverId: "claude-code", tier: "accept-edits" });
+    const { queue } = attachAgent(WT);
+
+    await send(WT, "hi");
+    puppet.feed({ kind: "turn-started", turnId: "t1" });
+    puppet.feed({ kind: "thinking-delta", text: "hmm " });
+    puppet.feed({ kind: "thinking-delta", text: "well " });
+    puppet.feed({ kind: "text-delta", text: "answer" });
+    puppet.feed({
+      costUsd: null,
+      kind: "turn-done",
+      stopReason: "completed",
+      turnId: "t1",
+      usage: null,
+    });
+    puppet.end();
+
+    const events = await pull(queue, 5);
+    expect(events.map((e) => e.kind)).toEqual([
+      "user-message",
+      "turn-started",
+      "thinking-delta",
+      "text-delta",
+      "turn-done",
+    ]);
+    expect(events[2]).toEqual({ kind: "thinking-delta", text: "hmm well " });
+    expect(events[3]).toEqual({ kind: "text-delta", text: "answer" });
+  });
+
+  // --- Review finding 4: the stream-error path never denied parked
+  // permissions, so a crash mid-turn left requestPermission waiting the
+  // full 5 minutes even though the turn producing the approval was dead.
+  test("a stream error denies a parked permission immediately instead of waiting out the timeout", async () => {
+    const puppet = puppetDriver();
+    configureManager({
+      baseDir: base,
+      drivers: { "claude-code": puppet.driver },
+    });
+    await setConfig(WT, { driverId: "claude-code", tier: "ask" });
+    await send(WT, "run it");
+
+    let verdict: boolean | null = null;
+    puppet
+      .input()
+      ?.requestPermission({
+        detail: "rm -rf /",
+        requestId: "r5",
+        toolName: "Bash",
+      })
+      .then((approved) => {
+        verdict = approved;
+      });
+    await vi.advanceTimersByTimeAsync(10);
+    expect(verdict).toBeNull();
+
+    puppet.crash(new Error("driver exploded"));
+    await settle();
+    expect(verdict).toBe(false);
+
+    const history = await readHistory(WT);
+    expect(history.at(-1)).toMatchObject({
+      kind: "turn-done",
+      stopReason: "error",
+    });
   });
 });

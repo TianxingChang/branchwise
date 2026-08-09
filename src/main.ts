@@ -86,6 +86,15 @@ function setupORPC() {
   });
 }
 
+// Not awaited by the caller: cleans up anything orphaned by a previous hard
+// crash (atlas A3), but startup does not depend on it finishing. Its own
+// guard: startup must never warn (or worse) over stray cleanup.
+function reapStraysAtStartup(): void {
+  reapStrays(path.join(app.getPath("userData"), "agent")).catch(
+    () => undefined
+  );
+}
+
 app.whenReady().then(() => {
   try {
     // The RPC channel must be listening before the window exists. The renderer
@@ -97,30 +106,30 @@ app.whenReady().then(() => {
     checkForUpdates();
     // Not awaited: devtools are a convenience, not a startup dependency.
     installExtensions();
-    // Not awaited: cleans up anything orphaned by a previous hard crash
-    // (atlas A3), but today's startup does not depend on it finishing.
-    reapStrays(path.join(app.getPath("userData"), "agent"));
+    reapStraysAtStartup();
   } catch (error) {
     console.error("Error during app initialization:", error);
   }
 });
 
-// Shells outlive the windows that show them, so they need an explicit stop.
-// Synchronous on purpose: Electron does not wait for an async quit handler, so
-// a dynamic import here could lose the race and leave shells behind.
+// Shells stop synchronously (they always did); agents need a bounded async
+// window: interrupt, SIGTERM, then SIGKILL via the pid file. The flag is set
+// in the completion handler BEFORE quit() so the re-entrant quit passes, and
+// a failed import must still quit — an unquittable app is worse than an
+// unreaped agent (startup reap covers those).
 let agentsShutDown = false;
 app.on("before-quit", (event) => {
   killAll();
   stopAllWatching();
   if (!agentsShutDown) {
-    // Agents need a bounded async window: interrupt, SIGTERM, then SIGKILL.
     event.preventDefault();
-    import("./ipc/agent/manager").then(({ shutdownAgents }) =>
-      shutdownAgents(2000).finally(() => {
+    import("./ipc/agent/manager")
+      .then(({ shutdownAgents }) => shutdownAgents(2000))
+      .catch(() => undefined)
+      .finally(() => {
         agentsShutDown = true;
         app.quit();
-      })
-    );
+      });
   }
 });
 

@@ -1,8 +1,8 @@
 import { PassThrough } from "node:stream";
 import { describe, expect, test } from "vitest";
-import { CodexAppServer, type ChildStdio } from "@/ipc/codex/app-server";
-import { createCodexDriver } from "@/ipc/codex/adapter";
 import type { StartTurnInput } from "@/ipc/agent/driver";
+import { createCodexDriver } from "@/ipc/codex/adapter";
+import { type ChildStdio, CodexAppServer } from "@/ipc/codex/app-server";
 import type { AgentEvent } from "@/types/agent";
 
 function scriptedChild(options: {
@@ -48,7 +48,8 @@ function scriptedChild(options: {
         send({ id: message.id, result: { threadId: "th_9" } });
       }
       if (message.method === "turn/start") {
-        const ack = () => send({ id: message.id, result: { turnId: "turn_9" } });
+        const ack = () =>
+          send({ id: message.id, result: { turnId: "turn_9" } });
         if (options.delayTurnAck) {
           releaseAck = ack;
           continue;
@@ -104,8 +105,8 @@ function scriptedChild(options: {
 
 function baseInput(overrides: Partial<StartTurnInput> = {}): StartTurnInput {
   return {
-    onSessionId: () => {},
-    onThreadId: () => {},
+    onSessionId: () => undefined,
+    onThreadId: () => undefined,
     prompt: "go",
     requestPermission: () => Promise.resolve(true),
     resume: { sessionId: null, threadId: null },
@@ -194,7 +195,25 @@ describe("codex adapter", () => {
     });
     const events = await drain(driver.startTurn(baseInput()).events);
     expect(events.some((e) => e.kind === "error")).toBe(true);
-    expect(events.at(-1)).toMatchObject({ kind: "turn-done", stopReason: "error" });
+    expect(events.at(-1)).toMatchObject({
+      kind: "turn-done",
+      stopReason: "error",
+    });
+  });
+
+  test("onSpawn receives the app-server child's pid when a fresh client is built", async () => {
+    const pids: number[] = [];
+    const driver = createCodexDriver({
+      onSpawn: (pid) => pids.push(pid),
+      // "echo" is a real, near-instantly-exiting binary standing in for
+      // codex here: onSpawn fires synchronously inside connect(), before any
+      // JSON-RPC round trip, so the (expected) handshake failure once echo
+      // exits does not affect this assertion.
+      resolveExecutable: () => Promise.resolve("echo"),
+    });
+    await drain(driver.startTurn(baseInput()).events);
+    expect(pids).toHaveLength(1);
+    expect(pids[0]).toBeGreaterThan(0);
   });
 
   test("a codex crash mid-turn closes the turn instead of hanging", async () => {

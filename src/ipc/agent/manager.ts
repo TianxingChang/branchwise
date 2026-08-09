@@ -11,10 +11,32 @@ const PERMISSION_TIMEOUT_MS = 5 * 60 * 1000;
 interface ActiveTurn {
   flushed: AgentEvent[]; // replay buffer for late attachers, this turn only
   handle: AgentTurnHandle;
-  pendingText: string;
-  pendingThinking: string;
+  /**
+   * Delta runs in arrival order — only ADJACENT same-kind runs merge, so a
+   * thinking→text transition can never flush inverted.
+   */
+  pendingDeltas: Extract<
+    AgentEvent,
+    { kind: "text-delta" | "thinking-delta" }
+  >[];
   timer: NodeJS.Timeout | null;
 }
+
+/**
+ * Occupies a worktree's slot between the synchronous guard in `send()` and
+ * `startTurn` resolving. Never iterated, never mutated — see `send()`.
+ */
+const RESERVED_TURN: ActiveTurn = {
+  flushed: [],
+  handle: {
+    events: (async function* (): AsyncGenerator<AgentEvent> {
+      // Placeholder only; nothing ever iterates the reservation's handle.
+    })(),
+    interrupt: () => Promise.resolve(),
+  },
+  pendingDeltas: [],
+  timer: null,
+};
 
 interface ManagerState {
   baseDir: string | null;
@@ -28,6 +50,24 @@ const pendingPermissions = new Map<
   string,
   Map<string, { resolve: (approved: boolean) => void; timer: NodeJS.Timeout }>
 >();
+let shuttingDown = false;
+
+/**
+ * Per-worktree emit chain: transcript appends and broadcasts happen strictly
+ * in event order, even though each append awaits the filesystem. Without
+ * this, a delta flush timer racing a non-delta emit (or two flush timers
+ * racing each other) could let events land out of order.
+ */
+const emitChains = new Map<string, Promise<void>>();
+function enqueueEmit(worktreePath: string, event: AgentEvent): Promise<void> {
+  const tail = emitChains.get(worktreePath) ?? Promise.resolve();
+  const next = tail.then(() => emit(worktreePath, event));
+  emitChains.set(
+    worktreePath,
+    next.catch(() => undefined)
+  );
+  return next;
+}
 
 /**
  * Serializes every read-modify-write of registry.json (Task 2 carry-over):
@@ -75,9 +115,11 @@ export function _resetManagerForTests(): void {
   turns.clear();
   subscribers.clear();
   pendingPermissions.clear();
+  emitChains.clear();
   state.baseDir = null;
   state.drivers = {};
   registryQueue = Promise.resolve();
+  shuttingDown = false;
 }
 
 async function baseDir(): Promise<string> {
@@ -99,7 +141,15 @@ async function driverFor(id: AgentDriverId): Promise<AgentDriver> {
     state.drivers[id] = createClaudeDriver();
   } else {
     const { createCodexDriver } = await import("@/ipc/codex/adapter");
-    state.drivers[id] = createCodexDriver();
+    const dir = await baseDir();
+    state.drivers[id] = createCodexDriver({
+      // Every spawned codex child lands in the pid file so a hard crash can
+      // be reaped on next launch and a wedged child SIGKILLed at quit.
+      onSpawn: (pid) =>
+        import("./pids")
+          .then(({ registerPid }) => registerPid(dir, pid))
+          .catch(() => undefined),
+    });
   }
   const created = state.drivers[id];
   if (!created) {
@@ -115,14 +165,32 @@ function broadcast(worktreePath: string, event: AgentEvent): void {
 }
 
 async function emit(worktreePath: string, event: AgentEvent): Promise<void> {
-  // Persist before making the event observable in memory: a subscriber that
-  // sees this via broadcast() or a late attacher that sees it via `flushed`
-  // must never be able to outrun readHistory() and find it missing from the
-  // transcript it was just told about.
-  await appendTranscript(await baseDir(), worktreePath, event);
+  // Capture the turn before awaiting: a turn that ends during the fs write
+  // must not leak this event into its successor's replay buffer. Persist
+  // before broadcasting so anything a subscriber has seen is already
+  // history — readHistory() can never come up short on an event a live
+  // listener just received.
   const turn = turns.get(worktreePath);
+  await appendTranscript(await baseDir(), worktreePath, event);
   turn?.flushed.push(event);
   broadcast(worktreePath, event);
+}
+
+/**
+ * Extends the turn's last pending run if it shares the new delta's kind,
+ * otherwise starts a new run — see `ActiveTurn.pendingDeltas` for why arrival
+ * order, not kind, decides how runs are grouped.
+ */
+function pushDelta(
+  turn: ActiveTurn,
+  event: Extract<AgentEvent, { kind: "text-delta" | "thinking-delta" }>
+): void {
+  const lastRun = turn.pendingDeltas.at(-1);
+  if (lastRun && lastRun.kind === event.kind) {
+    lastRun.text += event.text;
+  } else {
+    turn.pendingDeltas.push(event);
+  }
 }
 
 function flushDeltas(worktreePath: string): Promise<void> {
@@ -130,24 +198,17 @@ function flushDeltas(worktreePath: string): Promise<void> {
   if (!turn) {
     return Promise.resolve();
   }
-  const writes: Promise<void>[] = [];
-  if (turn.pendingText.length > 0) {
-    writes.push(
-      emit(worktreePath, { kind: "text-delta", text: turn.pendingText })
-    );
-    turn.pendingText = "";
-  }
-  if (turn.pendingThinking.length > 0) {
-    writes.push(
-      emit(worktreePath, { kind: "thinking-delta", text: turn.pendingThinking })
-    );
-    turn.pendingThinking = "";
-  }
+  const runs = turn.pendingDeltas;
+  turn.pendingDeltas = [];
   if (turn.timer) {
     clearTimeout(turn.timer);
     turn.timer = null;
   }
-  return Promise.all(writes).then(() => undefined);
+  let last: Promise<void> = Promise.resolve();
+  for (const run of runs) {
+    last = enqueueEmit(worktreePath, run);
+  }
+  return last;
 }
 
 function scheduleFlush(worktreePath: string): void {
@@ -222,52 +283,70 @@ export async function send(
   if (trimmed.length === 0) {
     return { accepted: false, reason: "Empty message." };
   }
+  if (shuttingDown) {
+    return { accepted: false, reason: "branchwise is shutting down." };
+  }
   if (turns.has(worktreePath)) {
     return { accepted: false, reason: "A turn is already running." };
   }
+  // Synchronous reservation BEFORE any await: two sends racing through the
+  // fs reads below must not both reach startTurn — the loser's agent would
+  // run unreachable by interrupt or shutdown, billing into the void.
+  turns.set(worktreePath, RESERVED_TURN);
 
-  const dir = await baseDir();
-  const registry = await loadRegistry(dir);
-  const entry = registry.worktrees[worktreePath];
-  const config: AgentConfig = entry
-    ? { driverId: entry.driverId, tier: entry.tier }
-    : { driverId: registry.lastDriverId, tier: "accept-edits" };
-  if (!entry) {
-    await setConfig(worktreePath, config);
-  }
-
-  const driver = await driverFor(config.driverId);
-  const handle = driver.startTurn({
-    onSessionId: (id) => persistIds(worktreePath, { sessionId: id }),
-    onThreadId: (id) => persistIds(worktreePath, { threadId: id }),
-    prompt: trimmed,
-    requestPermission: (request) =>
-      new Promise<boolean>((resolve) => {
-        const forWorktree = pendingPermissions.get(worktreePath) ?? new Map();
-        pendingPermissions.set(worktreePath, forWorktree);
-        const timer = setTimeout(() => {
-          forWorktree.delete(request.requestId);
-          resolve(false);
-        }, PERMISSION_TIMEOUT_MS);
-        forWorktree.set(request.requestId, { resolve, timer });
-      }),
-    resume: {
+  let handle: AgentTurnHandle;
+  try {
+    const dir = await baseDir();
+    const registry = await loadRegistry(dir);
+    const entry = registry.worktrees[worktreePath];
+    const config: AgentConfig = entry
+      ? { driverId: entry.driverId, tier: entry.tier }
+      : { driverId: registry.lastDriverId, tier: "accept-edits" };
+    if (!entry) {
+      await setConfig(worktreePath, config);
+    }
+    const resume = {
       sessionId: entry?.sessionId ?? null,
       threadId: entry?.threadId ?? null,
-    },
-    tier: config.tier,
-    worktreePath,
-  });
+    };
+
+    const driver = await driverFor(config.driverId);
+    handle = driver.startTurn({
+      onSessionId: (id) => persistIds(worktreePath, { sessionId: id }),
+      onThreadId: (id) => persistIds(worktreePath, { threadId: id }),
+      prompt: trimmed,
+      requestPermission: (request) =>
+        new Promise<boolean>((resolve) => {
+          const forWorktree = pendingPermissions.get(worktreePath) ?? new Map();
+          pendingPermissions.set(worktreePath, forWorktree);
+          const timer = setTimeout(() => {
+            forWorktree.delete(request.requestId);
+            resolve(false);
+          }, PERMISSION_TIMEOUT_MS);
+          forWorktree.set(request.requestId, { resolve, timer });
+        }),
+      resume,
+      tier: config.tier,
+      worktreePath,
+    });
+  } catch (error) {
+    // The reservation must not outlive a failed start.
+    turns.delete(worktreePath);
+    return {
+      accepted: false,
+      reason:
+        error instanceof Error ? error.message : "The agent could not start.",
+    };
+  }
 
   const turn: ActiveTurn = {
     flushed: [],
     handle,
-    pendingText: "",
-    pendingThinking: "",
+    pendingDeltas: [],
     timer: null,
   };
-  turns.set(worktreePath, turn);
-  await emit(worktreePath, { kind: "user-message", text: trimmed });
+  turns.set(worktreePath, turn); // replaces the reservation
+  await enqueueEmit(worktreePath, { kind: "user-message", text: trimmed });
 
   (async () => {
     try {
@@ -276,41 +355,63 @@ export async function send(
         if (live !== turn) {
           return; // superseded (shutdown raced a stream tail)
         }
-        if (event.kind === "text-delta") {
-          turn.pendingText += event.text;
-          scheduleFlush(worktreePath);
-          continue;
-        }
-        if (event.kind === "thinking-delta") {
-          turn.pendingThinking += event.text;
+        if (event.kind === "text-delta" || event.kind === "thinking-delta") {
+          pushDelta(turn, event);
           scheduleFlush(worktreePath);
           continue;
         }
         await flushDeltas(worktreePath);
-        await emit(worktreePath, event);
+        await enqueueEmit(worktreePath, event);
         if (event.kind === "turn-done") {
           turns.delete(worktreePath);
         }
       }
     } catch (error) {
       await flushDeltas(worktreePath);
-      await emit(worktreePath, {
+      await enqueueEmit(worktreePath, {
         kind: "error",
         message:
           error instanceof Error ? error.message : "The agent stream failed.",
       });
-      await emit(worktreePath, {
+      await enqueueEmit(worktreePath, {
         costUsd: null,
         kind: "turn-done",
         stopReason: "error",
         turnId: "stream",
         usage: null,
       });
-      turns.delete(worktreePath);
+    } finally {
+      // Backstop: a stream that ends without a terminal event, and the
+      // crash/error path above, both free the slot; no parked permission
+      // waits out its five minutes against a dead turn.
+      if (turns.get(worktreePath) === turn) {
+        turns.delete(worktreePath);
+      }
+      denyPendingPermissions(worktreePath);
     }
   })();
 
   return { accepted: true };
+}
+
+/**
+ * Denies (resolves false) every permission still parked for a worktree and
+ * clears their timers. Task 8 carry-over: a codex crash mid-turn — or any
+ * interrupt, shutdown, or stream-error — must not leave `requestPermission`'s
+ * promise waiting out the full 5-minute timeout once the turn it belonged to
+ * is dead. Shared by the pump's `finally`, `interruptTurn`, and
+ * `shutdownAgents`.
+ */
+function denyPendingPermissions(worktreePath: string): void {
+  const forWorktree = pendingPermissions.get(worktreePath);
+  if (!forWorktree) {
+    return;
+  }
+  for (const entry of forWorktree.values()) {
+    clearTimeout(entry.timer);
+    entry.resolve(false);
+  }
+  pendingPermissions.delete(worktreePath);
 }
 
 /** Adjacent text/thinking deltas merge; every other event kind stands alone. */
@@ -351,30 +452,6 @@ export function detachAgent(
   queue.close();
 }
 
-/**
- * Denies (resolves false) every permission still parked for a worktree and
- * clears their timers. Task 8 carry-over: a codex crash mid-turn — or any
- * interrupt/shutdown — must not leave `requestPermission`'s promise waiting
- * out the full 5-minute timeout once the turn it belonged to is dead.
- */
-function denyPendingPermissions(worktreePath: string): void {
-  const forWorktree = pendingPermissions.get(worktreePath);
-  if (!forWorktree) {
-    return;
-  }
-  for (const entry of forWorktree.values()) {
-    clearTimeout(entry.timer);
-    entry.resolve(false);
-  }
-  pendingPermissions.delete(worktreePath);
-}
-
-function denyAllPendingPermissions(): void {
-  for (const worktreePath of [...pendingPermissions.keys()]) {
-    denyPendingPermissions(worktreePath);
-  }
-}
-
 export async function interruptTurn(worktreePath: string): Promise<void> {
   await turns.get(worktreePath)?.handle.interrupt();
   // Also covers a turn that already died (e.g. a driver crash) leaving a
@@ -406,6 +483,7 @@ export async function readHistory(worktreePath: string): Promise<AgentEvent[]> {
  * parked, then reap what's left.
  */
 export async function shutdownAgents(timeoutMs = 2000): Promise<void> {
+  shuttingDown = true; // sends mid-flight refuse from here on
   const work = (async () => {
     await Promise.all(
       [...turns.keys()].map((worktreePath) => interruptTurn(worktreePath))
@@ -419,10 +497,12 @@ export async function shutdownAgents(timeoutMs = 2000): Promise<void> {
     new Promise((resolve) => setTimeout(resolve, timeoutMs)),
   ]);
   // Belt and braces alongside interruptTurn's per-worktree deny above: a
-  // worktree whose turn already ended (crash) before shutdown was called
-  // never goes through interruptTurn's loop, so sweep every worktree here
-  // too rather than leaving its requestPermission promise parked.
-  denyAllPendingPermissions();
+  // worktree whose turn already ended (crash) before shutdown was even
+  // called never goes through interruptTurn's loop, so sweep every worktree
+  // here too rather than leaving its requestPermission promise parked.
+  for (const worktreePath of [...pendingPermissions.keys()]) {
+    denyPendingPermissions(worktreePath);
+  }
   const { reapStrays } = await import("./pids");
   await reapStrays(await baseDir()).catch(() => []);
 }

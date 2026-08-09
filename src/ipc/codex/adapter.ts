@@ -45,11 +45,14 @@ function extractRequestDetail(
 
 export function createCodexDriver(dependencies?: {
   client?: CodexAppServer;
+  /** Called with the app-server child's pid the moment it is spawned. */
+  onSpawn?: (pid: number) => void;
   resolveExecutable?: () => Promise<string | null>;
 }): AgentDriver {
   let client: CodexAppServer | null = dependencies?.client ?? null;
   const resolve =
     dependencies?.resolveExecutable ?? (() => resolveCodexExecutable());
+  const onSpawn = dependencies?.onSpawn;
   /** threadId per worktree, for this app run. The registry outlives us. */
   const threads = new Map<string, string>();
 
@@ -61,7 +64,13 @@ export function createCodexDriver(dependencies?: {
     if (!executable) {
       throw new Error(INSTALL_HINT);
     }
-    client = new CodexAppServer(() => spawnCodexAppServer(executable));
+    client = new CodexAppServer(() => {
+      const child = spawnCodexAppServer(executable);
+      if (child.pid !== undefined) {
+        onSpawn?.(child.pid);
+      }
+      return child;
+    });
     return client;
   }
 
