@@ -788,7 +788,7 @@ git commit -m "Persist agent registry and transcripts under app support"
 - Consumes: nothing.
 - Produces:
   - `find-executable.ts`: `findExecutable(input: { binaryName: string; env: NodeJS.ProcessEnv; envOverride?: string; extraCandidates: string[] }): Promise<string | null>` — checks the env-override path, then `extraCandidates`, then each `PATH` directory joined with `binaryName`. Absolute, executable paths only; never throws.
-  - `executable.ts`: `resolveClaudeExecutable(env?: NodeJS.ProcessEnv): Promise<string | null>` — thin wrapper over `findExecutable`. Search order: `CLAUDE_BIN` env override → `~/.local/bin/claude` → `~/.claude/local/claude` → `/opt/homebrew/bin/claude` → `/usr/local/bin/claude` → first hit on `PATH`.
+  - `executable.ts`: `resolveClaudeExecutable(env?: NodeJS.ProcessEnv, systemCandidates?: string[]): Promise<string | null>` — thin wrapper over `findExecutable`. Search order: `CLAUDE_BIN` env override → `~/.local/bin/claude` → `~/.claude/local/claude` → system candidates (default `/opt/homebrew/bin/claude`, `/usr/local/bin/claude`) → first hit on `PATH`. The system candidates are an injectable parameter so tests stay hermetic on machines that really have a brew-installed claude; production callers omit it.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -817,26 +817,39 @@ async function fakeBinary(name: string): Promise<string> {
 }
 
 describe("resolveClaudeExecutable", () => {
+  // systemCandidates is [] throughout: the default brew paths are real
+  // machine state these tests must not depend on.
   test("CLAUDE_BIN override wins when it exists", async () => {
     const bin = await fakeBinary("claude");
     expect(
-      await resolveClaudeExecutable({ CLAUDE_BIN: bin, HOME: base, PATH: "" })
+      await resolveClaudeExecutable(
+        { CLAUDE_BIN: bin, HOME: base, PATH: "" },
+        []
+      )
     ).toBe(bin);
   });
 
   test("a CLAUDE_BIN pointing nowhere is ignored, PATH is searched", async () => {
     const bin = await fakeBinary("claude");
-    const resolved = await resolveClaudeExecutable({
-      CLAUDE_BIN: path.join(base, "missing"),
-      HOME: base,
-      PATH: base,
-    });
+    const resolved = await resolveClaudeExecutable(
+      { CLAUDE_BIN: path.join(base, "missing"), HOME: base, PATH: base },
+      []
+    );
     expect(resolved).toBe(bin);
+  });
+
+  test("an injected system candidate beats PATH", async () => {
+    const system = await fakeBinary("claude");
+    const resolved = await resolveClaudeExecutable(
+      { HOME: path.join(base, "nohome"), PATH: "" },
+      [system]
+    );
+    expect(resolved).toBe(system);
   });
 
   test("returns null when nothing is installed", async () => {
     expect(
-      await resolveClaudeExecutable({ HOME: base, PATH: base })
+      await resolveClaudeExecutable({ HOME: base, PATH: base }, [])
     ).toBeNull();
   });
 });
@@ -902,8 +915,16 @@ export async function findExecutable(input: {
 import path from "node:path";
 import { findExecutable } from "@/ipc/agent/find-executable";
 
+const DEFAULT_SYSTEM_CANDIDATES = [
+  "/opt/homebrew/bin/claude",
+  "/usr/local/bin/claude",
+];
+
 export function resolveClaudeExecutable(
-  env: NodeJS.ProcessEnv = process.env
+  env: NodeJS.ProcessEnv = process.env,
+  // Injectable so tests never depend on what is really installed at the
+  // fixed system paths on the machine running them.
+  systemCandidates: string[] = DEFAULT_SYSTEM_CANDIDATES
 ): Promise<string | null> {
   const home = env.HOME ?? "";
   return findExecutable({
@@ -917,8 +938,7 @@ export function resolveClaudeExecutable(
             path.join(home, ".claude", "local", "claude"),
           ]
         : []),
-      "/opt/homebrew/bin/claude",
-      "/usr/local/bin/claude",
+      ...systemCandidates,
     ],
   });
 }
@@ -1923,14 +1943,21 @@ Expected: FAIL — module does not exist.
 - [ ] **Step 3: Write the implementation**
 
 `src/ipc/codex/executable.ts` (thin wrapper over Task 3's shared
-`findExecutable` — do not duplicate the search loop):
+`findExecutable` — do not duplicate the search loop; same injectable
+`systemCandidates` parameter as the Claude wrapper so tests stay hermetic):
 
 ```ts
 import path from "node:path";
 import { findExecutable } from "@/ipc/agent/find-executable";
 
+const DEFAULT_SYSTEM_CANDIDATES = [
+  "/opt/homebrew/bin/codex",
+  "/usr/local/bin/codex",
+];
+
 export function resolveCodexExecutable(
-  env: NodeJS.ProcessEnv = process.env
+  env: NodeJS.ProcessEnv = process.env,
+  systemCandidates: string[] = DEFAULT_SYSTEM_CANDIDATES
 ): Promise<string | null> {
   const home = env.HOME ?? "";
   return findExecutable({
@@ -1939,8 +1966,7 @@ export function resolveCodexExecutable(
     envOverride: env.CODEX_BIN,
     extraCandidates: [
       ...(home ? [path.join(home, ".local", "bin", "codex")] : []),
-      "/opt/homebrew/bin/codex",
-      "/usr/local/bin/codex",
+      ...systemCandidates,
     ],
   });
 }
