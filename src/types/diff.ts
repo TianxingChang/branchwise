@@ -54,6 +54,11 @@ export const worktreeDiffSchema = z.object({
   /** The merge-base the diff was taken against, or "HEAD" for the root node. */
   baseRef: z.string(),
   files: z.array(fileDiffSchema),
+  /**
+   * Paths git does not track yet — a freshly created file never shows up in
+   * `git diff`, so the view lists these by name instead of dropping them.
+   */
+  untracked: z.array(z.string()),
 });
 
 export const diffSummarySchema = z.object({
