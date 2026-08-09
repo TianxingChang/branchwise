@@ -6,7 +6,7 @@ export default defineConfig({
     rollupOptions: {
       // Native module: it has to be loaded from node_modules at runtime, not
       // inlined into the bundle.
-      external: ["node-pty"],
+      external: ["node-pty", "@anthropic-ai/claude-agent-sdk"],
     },
   },
   resolve: {
