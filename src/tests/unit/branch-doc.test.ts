@@ -106,6 +106,16 @@ describe("parseGraphDoc", () => {
     ).toBeNull();
   });
 
+  test("maps a persisted view tab onto artifact instead of dropping the doc", () => {
+    const doc = parseGraphDoc({
+      ...createSeedDoc(),
+      panel: { collapsed: false, tab: "view", width: 420 },
+    });
+
+    expect(doc).not.toBeNull();
+    expect(doc?.panel.tab).toBe("artifact");
+  });
+
   test("fills in split for a doc written before postures existed", () => {
     const doc = parseGraphDoc({
       ...createSeedDoc(),

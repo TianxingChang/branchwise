@@ -3,9 +3,9 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { worktreeStatus } from "@/actions/repo";
 import { branchLabel } from "@/components/canvas/branch-node";
 import AgentTab from "@/components/panel/agent-tab";
+import ArtifactTab from "@/components/panel/artifact-tab";
 import DiffTab from "@/components/panel/diff-tab";
 import FileTab from "@/components/panel/file-tab";
-import PlaceholderTab from "@/components/panel/placeholder-tab";
 import TerminalTab from "@/components/panel/terminal-tab";
 import {
   MAX_PANEL_WIDTH,
@@ -27,10 +27,10 @@ import { cn } from "@/utils/tailwind";
 
 const TAB_LABELS: Record<PanelTab, string> = {
   agent: "Agent",
+  artifact: "Artifact",
   diff: "Diff",
   file: "File",
   terminal: "Terminal",
-  view: "View",
 };
 
 /**
@@ -417,7 +417,14 @@ function PanelBody({
     return <TerminalTab key={node.id} node={node} />;
   }
 
-  return <PlaceholderTab branchName={label} tab={tab} />;
+  if (tab === "artifact") {
+    // Deliberately not keyed by worktree: the shelf is the project's, and the
+    // note you were writing should not vanish because you clicked a node.
+    return <ArtifactTab projectFolder={projectFolder} />;
+  }
+
+  // Every tab above is real; a tab id this misses renders visibly empty.
+  return null;
 }
 
 function TabButton({

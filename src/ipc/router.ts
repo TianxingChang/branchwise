@@ -1,4 +1,5 @@
 import { app } from "./app";
+import { artifacts } from "./artifacts";
 import { files } from "./files";
 import { project } from "./project";
 import { repo } from "./repo";
@@ -9,6 +10,7 @@ import { window } from "./window";
 
 export const router = {
   app,
+  artifacts,
   files,
   project,
   repo,
