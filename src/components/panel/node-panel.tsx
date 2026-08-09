@@ -7,6 +7,7 @@ import ArtifactTab from "@/components/panel/artifact-tab";
 import FileTab from "@/components/panel/file-tab";
 import PlaceholderTab from "@/components/panel/placeholder-tab";
 import TerminalTab from "@/components/panel/terminal-tab";
+import ViewTab from "@/components/panel/view-tab";
 import { MAX_PANEL_WIDTH, MIN_PANEL_WIDTH } from "@/lib/branch/constants";
 import { descendantNodeIds } from "@/lib/git/resolve";
 import { useRepoStore } from "@/stores/repo-store";
@@ -335,6 +336,11 @@ function PanelBody({
     // Keyed by worktree so switching nodes gets its own shell rather than
     // re-pointing this one.
     return <TerminalTab key={node.id} node={node} />;
+  }
+
+  if (tab === "view") {
+    // Keyed by worktree so each node previews its own address.
+    return <ViewTab branchLabel={label} key={node.id} node={node} />;
   }
 
   if (tab === "artifact") {
