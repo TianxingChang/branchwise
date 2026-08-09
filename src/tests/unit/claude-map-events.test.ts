@@ -69,6 +69,56 @@ describe("mapClaudeMessage", () => {
     ]);
   });
 
+  test("a multi-line command collapses to a one-line detail", () => {
+    const message = {
+      message: {
+        content: [
+          {
+            id: "toolu_2",
+            input: { command: "npm run build &&\nnpm test\n# done" },
+            name: "Bash",
+            type: "tool_use",
+          },
+        ],
+      },
+      type: "assistant",
+    };
+    expect(mapClaudeMessage(message, "t1")).toEqual([
+      {
+        detail: "npm run build && npm test # done",
+        kind: "tool-started",
+        name: "Bash",
+        toolId: "toolu_2",
+      },
+    ]);
+  });
+
+  test("array-shaped tool_result content extracts its text blocks", () => {
+    const message = {
+      message: {
+        content: [
+          {
+            content: [
+              { text: "line one", type: "text" },
+              { text: "line two", type: "text" },
+            ],
+            tool_use_id: "toolu_1",
+            type: "tool_result",
+          },
+        ],
+      },
+      type: "user",
+    };
+    expect(mapClaudeMessage(message, "t1")).toEqual([
+      {
+        detail: "line one line two",
+        kind: "tool-finished",
+        ok: true,
+        toolId: "toolu_1",
+      },
+    ]);
+  });
+
   test("result carries cost and usage into turn-done", () => {
     const message = {
       subtype: "success",
