@@ -217,6 +217,9 @@ inherited: z
     at: z.number(),
     from: z.string(),
     mode: z.enum(["brief", "full"]),
+    // The human-facing provenance label. The path in `from` is machine
+    // identity; a root parent's path tail is the folder name, not "main".
+    parentLabel: z.string(),
   })
   .optional(),
 
@@ -274,7 +277,11 @@ clear is idempotent; registry schema accepts an entry with and without
      claude-code; may be undefined)
    Writes the pending file, then updates the child's registry entry:
    config copied from the PARENT's entry (driver + tier follow the parent so
-   the fork lands on the same vendor), plus `inherited: { at: Date.now(), from: parentWorktree, mode }`.
+   the fork lands on the same vendor), plus
+   `inherited: { at: Date.now(), from: parentWorktree, mode, parentLabel: input.parentLabel }`
+   — the label is persisted so the badge never has to reverse-engineer a
+   branch name from a worktree path (amended after Task 6's review: a root
+   parent's path tail is the repo folder, not its branch).
 2. `send()` — after the reservation, before building `StartTurnInput`: read
    pending inheritance for this worktree. If present:
    - brief: prompt becomes `` `${pending.brief}\n\n---\n\n${trimmed}` ``.
