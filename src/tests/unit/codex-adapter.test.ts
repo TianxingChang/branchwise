@@ -47,6 +47,12 @@ function scriptedChild(options: {
       if (message.method === "thread/start") {
         send({ id: message.id, result: { threadId: "th_9" } });
       }
+      if (message.method === "thread/resume") {
+        send({ id: message.id, result: {} });
+      }
+      if (message.method === "thread/inject_items") {
+        send({ id: message.id, result: {} });
+      }
       if (message.method === "turn/start") {
         const ack = () =>
           send({ id: message.id, result: { turnId: "turn_9" } });
@@ -150,6 +156,77 @@ describe("codex adapter", () => {
     expect(threadIds).toEqual(["th_9"]);
     expect(events.some((e) => e.kind === "permission-request")).toBe(false);
     expect(events.at(-1)).toMatchObject({
+      kind: "turn-done",
+      stopReason: "completed",
+    });
+  });
+
+  test("a fresh thread injects prior history before turn/start; a resumed thread never injects", async () => {
+    const fresh = scriptedChild({ withApproval: false });
+    const freshDriver = createCodexDriver({
+      client: new CodexAppServer(() => fresh.child),
+    });
+    const freshEvents = await drain(
+      freshDriver.startTurn(
+        baseInput({
+          inject: [
+            { role: "user", text: "earlier question" },
+            { role: "assistant", text: "earlier answer" },
+          ],
+        })
+      ).events
+    );
+    const injectCalls = fresh.received.filter(
+      (m) => m.method === "thread/inject_items"
+    );
+    expect(injectCalls).toHaveLength(1);
+    expect(injectCalls[0]?.params).toEqual({
+      items: [
+        {
+          content: [{ text: "earlier question", type: "input_text" }],
+          role: "user",
+          type: "message",
+        },
+        {
+          content: [{ text: "earlier answer", type: "output_text" }],
+          role: "assistant",
+          type: "message",
+        },
+      ],
+      threadId: "th_9",
+    });
+    const injectIndex = fresh.received.findIndex(
+      (m) => m.method === "thread/inject_items"
+    );
+    const turnStartIndex = fresh.received.findIndex(
+      (m) => m.method === "turn/start"
+    );
+    expect(injectIndex).toBeGreaterThanOrEqual(0);
+    expect(injectIndex).toBeLessThan(turnStartIndex);
+    expect(freshEvents.at(-1)).toMatchObject({
+      kind: "turn-done",
+      stopReason: "completed",
+    });
+
+    const resumed = scriptedChild({ withApproval: false });
+    const resumedDriver = createCodexDriver({
+      client: new CodexAppServer(() => resumed.child),
+    });
+    const resumedEvents = await drain(
+      resumedDriver.startTurn(
+        baseInput({
+          inject: [{ role: "user", text: "should never be sent" }],
+          resume: { sessionId: null, threadId: "th_9" },
+        })
+      ).events
+    );
+    expect(resumed.received.some((m) => m.method === "thread/resume")).toBe(
+      true
+    );
+    expect(
+      resumed.received.some((m) => m.method === "thread/inject_items")
+    ).toBe(false);
+    expect(resumedEvents.at(-1)).toMatchObject({
       kind: "turn-done",
       stopReason: "completed",
     });

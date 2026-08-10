@@ -82,6 +82,7 @@ export function createClaudeDriver(dependencies?: {
         abortController: controller,
         canUseTool,
         executable,
+        forkSession: input.resume.fork,
         resumeSessionId: input.resume.sessionId,
         tier: input.tier,
         worktreePath: input.worktreePath,

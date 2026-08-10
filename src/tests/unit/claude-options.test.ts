@@ -64,4 +64,26 @@ describe("buildClaudeOptions", () => {
       buildClaudeOptions({ ...BASE, resumeSessionId: "s-123" }).resume
     ).toBe("s-123");
   });
+
+  test("forkSession is set only when resume.fork is true and a resume id is present", () => {
+    expect(
+      buildClaudeOptions({
+        ...BASE,
+        forkSession: true,
+        resumeSessionId: "s-123",
+      }).forkSession
+    ).toBe(true);
+    expect(
+      buildClaudeOptions({ ...BASE, forkSession: true, resumeSessionId: null })
+        .forkSession
+    ).toBeUndefined();
+    expect(
+      buildClaudeOptions({
+        ...BASE,
+        forkSession: false,
+        resumeSessionId: "s-123",
+      }).forkSession
+    ).toBeUndefined();
+    expect(buildClaudeOptions(BASE).forkSession).toBeUndefined();
+  });
 });

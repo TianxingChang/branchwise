@@ -31,13 +31,20 @@ export type CanUseToolShim = (
 >;
 
 /**
- * Pure so the spawn contract is unit-testable: cwd, env, permission mode and
- * the resume id are decided here and nowhere else.
+ * Pure so the spawn contract is unit-testable: cwd, env, permission mode,
+ * the resume id and whether to fork it are decided here and nowhere else.
  */
 export function buildClaudeOptions(input: {
   abortController: AbortController;
   canUseTool: CanUseToolShim;
   executable: string;
+  /**
+   * Mirrors StartTurnInput.resume.fork. Only ever surfaced to the SDK
+   * alongside an actual resume id — forking is meaningless without a
+   * session to fork from, and the key must be omitted (never `false`) when
+   * it doesn't apply.
+   */
+  forkSession?: boolean;
   resumeSessionId: string | null;
   tier: PermissionTier;
   worktreePath: string;
@@ -52,5 +59,8 @@ export function buildClaudeOptions(input: {
     permissionMode: TIER_TO_MODE[input.tier],
     ...(input.tier === "yolo" ? { allowDangerouslySkipPermissions: true } : {}),
     ...(input.resumeSessionId ? { resume: input.resumeSessionId } : {}),
+    ...(input.forkSession === true && input.resumeSessionId
+      ? { forkSession: true }
+      : {}),
   };
 }

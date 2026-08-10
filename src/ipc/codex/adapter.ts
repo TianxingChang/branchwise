@@ -80,13 +80,20 @@ export function createCodexDriver(dependencies?: {
     let liveTurnId: string | null = null;
     let interrupted = false;
 
-    async function initializeThread(server: CodexAppServer): Promise<string> {
+    /**
+     * `fresh` distinguishes a brand-new thread/start from a resumed one —
+     * only a fresh thread has no history of its own, and is therefore the
+     * only one ever eligible for a history injection below.
+     */
+    async function initializeThread(
+      server: CodexAppServer
+    ): Promise<{ fresh: boolean; threadId: string }> {
       const known = input.resume.threadId ?? threads.get(input.worktreePath);
       const tierConfig = TIER_TO_THREAD[input.tier];
       if (known) {
         try {
           await server.request("thread/resume", { threadId: known });
-          return known;
+          return { fresh: false, threadId: known };
         } catch {
           // Fall through to start new thread
         }
@@ -102,7 +109,38 @@ export function createCodexDriver(dependencies?: {
       if (typeof threadId !== "string") {
         throw new Error("codex did not return a thread id.");
       }
-      return threadId;
+      return { fresh: true, threadId };
+    }
+
+    /**
+     * Seeds a freshly started thread with a parent conversation (full-tier
+     * inheritance that fell back from a claude-code fork). Never called for
+     * a resumed thread, which already holds its own history. A rejection
+     * here is left to propagate to the caller's try/catch, same as any
+     * other setup failure — the guarded lifecycle turns it into an error
+     * event plus a terminal turn-done rather than a throw reaching the
+     * consumer.
+     */
+    async function injectHistory(
+      server: CodexAppServer,
+      threadId: string
+    ): Promise<void> {
+      if (!input.inject?.length) {
+        return;
+      }
+      await server.request("thread/inject_items", {
+        items: input.inject.map((message) => ({
+          content: [
+            {
+              text: message.text,
+              type: message.role === "user" ? "input_text" : "output_text",
+            },
+          ],
+          role: message.role,
+          type: "message",
+        })),
+        threadId,
+      });
     }
 
     async function initializeTurn(
@@ -212,9 +250,14 @@ export function createCodexDriver(dependencies?: {
       });
 
       try {
-        liveThreadId = await initializeThread(server);
+        const thread = await initializeThread(server);
+        liveThreadId = thread.threadId;
         threads.set(input.worktreePath, liveThreadId);
         input.onThreadId(liveThreadId);
+
+        if (thread.fresh) {
+          await injectHistory(server, liveThreadId);
+        }
 
         liveTurnId = await initializeTurn(server, liveThreadId);
         if (interrupted && liveThreadId && liveTurnId) {
