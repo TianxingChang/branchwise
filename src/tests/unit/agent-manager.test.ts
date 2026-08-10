@@ -407,6 +407,99 @@ describe("agent session manager", () => {
     });
   });
 
+  // --- Follow-up review finding: the grace force-close frees the slot
+  // while the ORIGINAL turn's pump keeps running — it is orphaned, still
+  // suspended in its own for-await over the (still wedged) generator, not
+  // cancelled. If that orphaned stream later throws for real, its
+  // catch/finally must not pollute a NEWER turn's transcript (a phantom
+  // turn-done{turnId:"stream"}) or deny that newer turn's permissions —
+  // pendingPermissions is keyed only by worktreePath, not by turn, so an
+  // unguarded denyPendingPermissions() would deny the wrong turn's request.
+  test("an orphaned pump's late failure does not pollute a newer turn's transcript or deny its permission", async () => {
+    const puppet = puppetDriver("claude-code", { wedgeInterrupt: true });
+    configureManager({
+      baseDir: base,
+      drivers: { "claude-code": puppet.driver },
+    });
+    await setConfig(WT, { driverId: "claude-code", tier: "accept-edits" });
+
+    // Turn 1: wedge it, interrupt, force-close via the grace.
+    await send(WT, "first task");
+    puppet.feed({ kind: "turn-started", turnId: "t1" });
+    await interruptTurn(WT);
+    await settleUntil(
+      async () =>
+        (await readHistory(WT)).some(
+          (e) => e.kind === "turn-done" && e.turnId === "forced"
+        ),
+      400
+    );
+
+    // Turn 2: the slot is free; a new turn starts and parks a permission.
+    await send(WT, "second task");
+    let verdict: boolean | null = null;
+    // tsc (strict null checks) reports TS2531 without this `?.`; puppet.input()
+    // is typed StartTurnInput | null and biome's cross-module inference
+    // disagrees with tsc here — trust tsc.
+    // biome-ignore lint/suspicious/noUnnecessaryConditions: see above
+    puppet
+      .input()
+      ?.requestPermission({
+        detail: "rm -rf /",
+        requestId: "r-second",
+        toolName: "Bash",
+      })
+      .then((approved) => {
+        verdict = approved;
+      });
+    await settleUntil(async () =>
+      (await readHistory(WT)).some(
+        (e) => e.kind === "permission-request" && e.requestId === "r-second"
+      )
+    );
+
+    // The ORPHANED first turn's stream finally throws for real — reached
+    // directly through generation 0's controls, since the top-level
+    // crash/feed/end now target generation 1 (the second send()).
+    puppet.turn(0)?.crash(new Error("orphaned stream finally failed"));
+    // Give the orphaned pump every chance to wrongly process this — if the
+    // identity guards were missing, this would append a phantom
+    // turn-done{turnId:"stream"} and deny r-second here.
+    for (let i = 0; i < 30; i += 1) {
+      // biome-ignore lint/performance/noAwaitInLoops: draining, see settleUntil above
+      await vi.advanceTimersByTimeAsync(10);
+    }
+
+    const history = await readHistory(WT);
+    expect(
+      history.filter((e) => e.kind === "turn-done" && e.turnId === "stream")
+    ).toHaveLength(0);
+    expect(verdict).toBeNull();
+    expect(
+      history.some(
+        (e) => e.kind === "permission-resolved" && e.requestId === "r-second"
+      )
+    ).toBe(false);
+
+    // Clean up: the permission is genuinely still answerable, and turn 2
+    // finishes normally.
+    expect(respondPermission(WT, "r-second", true)).toBe(true);
+    await settleUntil(async () =>
+      (await readHistory(WT)).some(
+        (e) => e.kind === "permission-resolved" && e.requestId === "r-second"
+      )
+    );
+    expect(verdict).toBe(true);
+    puppet.feed({
+      costUsd: null,
+      kind: "turn-done",
+      stopReason: "completed",
+      turnId: "t2",
+      usage: null,
+    });
+    puppet.end();
+  });
+
   test("session ids persist into the registry via callbacks", async () => {
     const puppet = puppetDriver();
     configureManager({

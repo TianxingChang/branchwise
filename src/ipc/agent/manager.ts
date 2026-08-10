@@ -223,6 +223,48 @@ function scheduleFlush(worktreePath: string): void {
   }, FLUSH_MS);
 }
 
+/**
+ * Reports the pump's stream failure to the transcript — but only if this
+ * pump's turn is still the live one. A wedged turn the interrupt grace
+ * already force-closed leaves its pump orphaned (still suspended in its own
+ * for-await); if that orphaned stream later throws for real, its failure
+ * must not be told into a NEWER turn's transcript.
+ */
+async function reportStreamFailure(
+  worktreePath: string,
+  turn: ActiveTurn,
+  error: unknown
+): Promise<void> {
+  if (turns.get(worktreePath) !== turn) {
+    return;
+  }
+  await enqueueEmit(worktreePath, {
+    kind: "error",
+    message:
+      error instanceof Error ? error.message : "The agent stream failed.",
+  });
+  await enqueueEmit(worktreePath, {
+    costUsd: null,
+    kind: "turn-done",
+    stopReason: "error",
+    turnId: "stream",
+    usage: null,
+  });
+}
+
+/**
+ * Frees the slot and denies pending permissions — but only if this pump's
+ * turn is still the live one. pendingPermissions is keyed only by
+ * worktreePath, not by turn, so an orphaned pump waking after a NEWER turn
+ * has claimed the slot must not deny that new turn's permissions.
+ */
+function closeTurnIfLive(worktreePath: string, turn: ActiveTurn): void {
+  if (turns.get(worktreePath) === turn) {
+    turns.delete(worktreePath);
+    denyPendingPermissions(worktreePath);
+  }
+}
+
 export async function getConfig(worktreePath: string): Promise<{
   config: AgentConfig;
   hasConversation: boolean;
@@ -390,26 +432,12 @@ export async function send(
       }
     } catch (error) {
       await flushDeltas(worktreePath);
-      await enqueueEmit(worktreePath, {
-        kind: "error",
-        message:
-          error instanceof Error ? error.message : "The agent stream failed.",
-      });
-      await enqueueEmit(worktreePath, {
-        costUsd: null,
-        kind: "turn-done",
-        stopReason: "error",
-        turnId: "stream",
-        usage: null,
-      });
+      await reportStreamFailure(worktreePath, turn, error);
     } finally {
       // Backstop: a stream that ends without a terminal event, and the
       // crash/error path above, both free the slot; no parked permission
       // waits out its five minutes against a dead turn.
-      if (turns.get(worktreePath) === turn) {
-        turns.delete(worktreePath);
-      }
-      denyPendingPermissions(worktreePath);
+      closeTurnIfLive(worktreePath, turn);
     }
   })().catch(() => undefined);
   // The catch above guards the pump itself: if the catch/finally blocks
