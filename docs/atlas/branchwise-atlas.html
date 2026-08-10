@@ -1190,7 +1190,7 @@ resolution is presented for review and never auto-accepted. Integration test for
 
 /* ── AGENT ──────────────────────────────────────────────────────────────── */
 {
-  id:'A1', lane:'A', slug:'runtime-interface', size:'S', status:'planned', week:[5,5],
+  id:'A1', lane:'A', slug:'runtime-interface', size:'S', status:'done', week:[5,5],
   title:'Draw the agent boundary before writing an adapter',
   one:'A vocabulary of agent events exists that no vendor type ever crosses.',
   why:`Two credible runtimes exist — Claude Code's headless stream-json, and ACP, which is jointly governed by
@@ -1217,7 +1217,7 @@ existing panel end-to-end. Add an import-boundary lint rule so no vendor SDK typ
 src/stores or src/components. No real agent yet.`
 },
 {
-  id:'A2', lane:'A', slug:'claude-adapter', size:'M', status:'planned', week:[8,9],
+  id:'A2', lane:'A', slug:'claude-adapter', size:'M', status:'done', week:[8,9],
   title:'A real agent, in the right worktree',
   one:'Type a task on a node and a real Claude Code process works in that worktree, streaming as it goes.',
   why:`Headless stream-json is the only option where every hard question has a verified answer today: sessions
@@ -1903,6 +1903,8 @@ const MEAS = [
 ['agent','CLI --help vs published docs','disagreed in three places','Documented flags absent from help but functional; permission-mode enum differs. Feature-detect from the init event.'],
 ['agent','ACP protocol status','v1 stable and additive-only; v2 is a published draft','v2 removes fs/*, terminal/* and session/load. Build v1 if you build it at all.'],
 ['agent','Codex CLI headless surface','codex exec --json, JSONL','Thread/turn/item events with usage per turn; a JSON-RPC app-server exists for richer embedding. Flags churn ~weekly — pin the version.'],
+['agent','claude --resume <id> --fork-session across a DIFFERENT cwd','works','Fork found the parent session, carried a planted codeword, minted a new session id. Sessions resolve globally, not per project dir. Verified 2026-08-10; SDK 0.3.226 exposes forkSession.'],
+['agent','codex 0.136.0 against its current backend','broken','Models refresh dies on unknown reasoning variant; default model rejected with "requires a newer version". codex update is the fix; adapter degrades to a clean error turn. Verified 2026-08-10.'],
 ['deps','node-pty native module status','Node-API, prebuilds shipped','electron-rebuild is no longer required. But its single-tarball layout breaks @electron/universal, and it ships a spawn-helper executable that must be unpacked from asar and signed.'],
 ['deps','xterm.js current major','@xterm/xterm 6.x','The canvas renderer was removed in 6.0 — DOM or WebGL only, and WebGL context loss has no built-in fallback. The unscoped xterm package is deprecated.'],
 ['css','--bw-accent vs --bw-running','both #2f6bff','Selection and activity are literally the same colour today.'],
