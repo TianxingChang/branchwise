@@ -13,32 +13,16 @@ export function pathMappingNote(source: InheritSource): string {
   return `(Parent worktree: ${source.parentWorktree}, Child worktree: ${source.childWorktree})`;
 }
 
-/**
- * Deterministic digest of a parent transcript. Sections, in order:
- * 任务目标 (first user-message), 近期结论 (up to the last 3 assistant texts,
- * most recent last, each clipped to 500 chars), 触碰过的文件 (unique
- * tool-started details that look like paths under the parent worktree,
- * rewritten repo-relative, capped at 20), 未决事项 (trailing error events
- * and permission-requests still pending at the end). Skips empty sections.
- * Returns "" when the transcript has no user-message at all.
- */
-export function buildBrief(events: AgentEvent[], source: InheritSource): string {
-  // Check for presence of user-message events; return "" if none exist
-  const hasUserMessage = events.some((e) => e.kind === "user-message");
-  if (!hasUserMessage) {
-    return "";
-  }
-
-  // Extract first user-message text
-  let goal = "";
+function extractGoal(events: AgentEvent[]): string {
   for (const event of events) {
     if (event.kind === "user-message") {
-      goal = event.text;
-      break;
+      return event.text;
     }
   }
+  return "";
+}
 
-  // Extract assistant texts (accumulate from text-delta, reset on turn-done)
+function collectAssistantTexts(events: AgentEvent[]): string[] {
   const assistantTexts: string[] = [];
   let currentTurnText = "";
   for (const event of events) {
@@ -51,65 +35,92 @@ export function buildBrief(events: AgentEvent[], source: InheritSource): string 
       currentTurnText = "";
     }
   }
+  return assistantTexts;
+}
 
-  // Keep up to last 3 assistant texts, clip each to 500 chars
-  const recentTexts = assistantTexts.slice(-3).map((text) =>
-    text.length > 500 ? text.slice(0, 500) : text
-  );
-
-  // Extract unique tool-started details that look like paths under parentWorktree
+function collectTouchedFiles(
+  events: AgentEvent[],
+  parentWorktree: string
+): string[] {
   const filesSet = new Set<string>();
+  const prefix = `${parentWorktree}/`;
   for (const event of events) {
-    if (
-      event.kind === "tool-started" &&
-      event.detail.startsWith(source.parentWorktree + "/")
-    ) {
-      // Rewrite to repo-relative
-      const repoRelative = event.detail.slice(
-        source.parentWorktree.length + 1
-      );
+    if (event.kind === "tool-started" && event.detail.startsWith(prefix)) {
+      const repoRelative = event.detail.slice(prefix.length);
       filesSet.add(repoRelative);
-      if (filesSet.size >= 20) break;
+      if (filesSet.size >= 20) {
+        break;
+      }
     }
   }
-  const files = Array.from(filesSet);
+  return Array.from(filesSet);
+}
 
-  // Build a Set of resolved permission requestIds
+function findLastTurnDoneIndex(events: AgentEvent[]): number {
+  for (let i = events.length - 1; i >= 0; i -= 1) {
+    const event = events[i];
+    if (event?.kind === "turn-done") {
+      return i;
+    }
+  }
+  return -1;
+}
+
+function collectOpenItems(
+  events: AgentEvent[],
+  lastTurnDoneIndex: number
+): string[] {
   const resolvedRequestIds = new Set<string>();
+  const openItems: string[] = [];
+
   for (const event of events) {
     if (event.kind === "permission-resolved") {
       resolvedRequestIds.add(event.requestId);
     }
   }
 
-  // Find the index of the last turn-done event
-  let lastTurnDoneIndex = -1;
-  for (let i = events.length - 1; i >= 0; i--) {
-    if (events[i]!.kind === "turn-done") {
-      lastTurnDoneIndex = i;
-      break;
-    }
-  }
-
-  // Extract trailing error events and unresolved permission-requests
-  const openItems: string[] = [];
-  for (let i = 0; i < events.length; i++) {
-    const event = events[i]!;
-    if (
-      event.kind === "error" &&
-      i > lastTurnDoneIndex
-    ) {
-      // Only errors after the last turn-done
+  for (let i = 0; i < events.length; i += 1) {
+    const event = events[i];
+    if (event?.kind === "error" && i > lastTurnDoneIndex) {
       openItems.push(event.message);
-    } else if (event.kind === "permission-request") {
-      // Include unresolved permissions anywhere in transcript
-      if (!resolvedRequestIds.has(event.requestId)) {
-        openItems.push(`Permission request: ${event.toolName}`);
-      }
+    } else if (
+      event?.kind === "permission-request" &&
+      !resolvedRequestIds.has(event.requestId)
+    ) {
+      openItems.push(`Permission request: ${event.toolName}`);
     }
   }
 
-  // Build markdown
+  return openItems;
+}
+
+/**
+ * Deterministic digest of a parent transcript. Sections, in order:
+ * 任务目标 (first user-message), 近期结论 (up to the last 3 assistant texts,
+ * most recent last, each clipped to 500 chars), 触碰过的文件 (unique
+ * tool-started details that look like paths under the parent worktree,
+ * rewritten repo-relative, capped at 20), 未决事项 (trailing error events
+ * and permission-requests still pending at the end). Skips empty sections.
+ * Returns "" when the transcript has no user-message at all.
+ */
+export function buildBrief(
+  events: AgentEvent[],
+  source: InheritSource
+): string {
+  const hasUserMessage = events.some((e) => e.kind === "user-message");
+  if (!hasUserMessage) {
+    return "";
+  }
+
+  const goal = extractGoal(events);
+  const assistantTexts = collectAssistantTexts(events);
+  const recentTexts = assistantTexts
+    .slice(-3)
+    .map((text) => (text.length > 500 ? text.slice(0, 500) : text));
+  const files = collectTouchedFiles(events, source.parentWorktree);
+  const lastTurnDoneIndex = findLastTurnDoneIndex(events);
+  const openItems = collectOpenItems(events, lastTurnDoneIndex);
+
   const sections: string[] = [];
   sections.push(`# ${source.parentLabel}`);
   sections.push("");

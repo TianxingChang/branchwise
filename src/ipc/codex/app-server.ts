@@ -123,6 +123,7 @@ export class CodexAppServer {
   }
 
   dispose(): void {
+    // biome-ignore lint/suspicious/noUnnecessaryConditions: biome mis-narrows here; tsc requires the check.
     if (this.disposed) {
       return;
     }
@@ -137,6 +138,7 @@ export class CodexAppServer {
   }
 
   private connect(): Promise<void> {
+    // biome-ignore lint/suspicious/noUnnecessaryConditions: biome mis-narrows here; tsc requires the check.
     if (this.disposed) {
       return Promise.reject(
         new AgentDriverError("codex app-server was shut down.")
@@ -260,6 +262,7 @@ export class CodexAppServer {
       // requests get an error reply rather than an invented decision.
       queueMicrotask(() => {
         Promise.resolve().then(() => {
+          // biome-ignore lint/suspicious/noNestedPromises: the double microtask hop is required — responses settling in the same stdout chunk must beat request dispatch (verified empirically; see task-8 fix report).
           this.dispatchRequest(message).catch(() => {
             // Dispatch errors are already handled and sent as error replies
           });
