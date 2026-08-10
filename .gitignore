@@ -102,3 +102,6 @@ out/
 
 # Tanstack
 .tanstack/
+
+# Claude Code session worktrees — a second checkout lives here; never track or lint it
+.claude/worktrees/

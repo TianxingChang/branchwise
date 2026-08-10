@@ -7,6 +7,7 @@ import { repo } from "./repo";
 import { shell } from "./shell";
 import { terminal } from "./terminal";
 import { theme } from "./theme";
+import { view } from "./view";
 import { window } from "./window";
 
 export const router = {
@@ -19,5 +20,6 @@ export const router = {
   shell,
   terminal,
   theme,
+  view,
   window,
 };

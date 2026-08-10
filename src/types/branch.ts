@@ -1,14 +1,23 @@
 import { z } from "zod";
 
+/** Ordered by use frequency — this array is the tab bar's render order. */
 export const PANEL_TABS = [
   "agent",
-  "view",
-  "terminal",
   "diff",
+  "terminal",
   "file",
+  "view",
   "artifact",
 ] as const;
 export type PanelTab = (typeof PANEL_TABS)[number];
+
+/**
+ * How much of the window the panel takes: peek floats over the canvas and
+ * reserves nothing, split docks and reserves its width, full takes the window
+ * while the canvas collapses to a branch rail.
+ */
+export const PANEL_POSTURES = ["peek", "split", "full"] as const;
+export type PanelPosture = (typeof PANEL_POSTURES)[number];
 
 /** How a node's parent edge was decided. Drives how the edge is drawn. */
 export const PARENT_SOURCES = ["created", "reflog", "user", "root"] as const;
@@ -72,6 +81,8 @@ export const branchAnnotationSchema = z.object({
 
 export const panelStateSchema = z.object({
   collapsed: z.boolean(),
+  /** Docs written before postures existed keep their docked geometry. */
+  posture: z.enum(PANEL_POSTURES).default("split"),
   tab: z.enum(PANEL_TABS),
   width: z.number().min(0),
 });

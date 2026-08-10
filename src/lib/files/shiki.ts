@@ -1,4 +1,4 @@
-import type { Highlighter } from "shiki";
+import type { BundledLanguage, Highlighter } from "shiki";
 
 /** Light-only, to match the rest of the surface. */
 const THEME = "github-light";
@@ -45,6 +45,47 @@ export async function highlightCode(
   }
 
   return highlighter.codeToHtml(text, { lang: language, theme: THEME });
+}
+
+export interface CodeToken {
+  color?: string;
+  text: string;
+}
+
+/**
+ * Highlights a snippet and returns one token row per input line, so a caller
+ * that renders line-by-line — the diff view — can compose syntax colour with
+ * its own decoration (word-level change marks) instead of receiving opaque
+ * markup. Returns null for plain text or an unknown grammar; the caller
+ * renders the raw text instead.
+ */
+export async function highlightCodeTokens(
+  text: string,
+  language: string
+): Promise<CodeToken[][] | null> {
+  if (language === "text") {
+    return null;
+  }
+
+  try {
+    const highlighter = await getHighlighter();
+    if (!loadedLanguages.has(language)) {
+      await highlighter.loadLanguage(
+        language as Parameters<Highlighter["loadLanguage"]>[0]
+      );
+      loadedLanguages.add(language);
+    }
+
+    const { tokens } = highlighter.codeToTokens(text, {
+      lang: language as BundledLanguage,
+      theme: THEME,
+    });
+    return tokens.map((line) =>
+      line.map((token) => ({ color: token.color, text: token.content }))
+    );
+  } catch {
+    return null;
+  }
 }
 
 /** Only used by tests, so one case cannot leak grammars into the next. */

@@ -83,13 +83,13 @@ test.afterAll(async () => {
 });
 
 test("an empty shelf says so", async () => {
-  await expect(page.getByText("Nothing here yet", { exact: false })).toBeVisible(
-    { timeout: 30_000 }
-  );
+  await expect(
+    page.getByText("Nothing here yet", { exact: false })
+  ).toBeVisible({ timeout: 30_000 });
 });
 
 test("a note autosaves what is typed into it", async () => {
-  await page.getByRole("button", { name: "Note", exact: true }).click();
+  await page.getByRole("button", { exact: true, name: "Note" }).click();
 
   // The fresh note opens straight into the editor.
   const editor = page.locator(".branchwise-markdown[contenteditable='true']");
@@ -107,7 +107,7 @@ test("a note autosaves what is typed into it", async () => {
 });
 
 test("a canvas renders tldraw and saves what is drawn", async () => {
-  await page.getByRole("button", { name: "Canvas", exact: true }).click();
+  await page.getByRole("button", { exact: true, name: "Canvas" }).click();
 
   // tldraw's editor container — proof the lazy chunk arrived and mounted.
   const canvas = page.locator(".tl-container");

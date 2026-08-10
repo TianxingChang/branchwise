@@ -105,4 +105,33 @@ describe("parseGraphDoc", () => {
       })
     ).toBeNull();
   });
+
+  test("fills in split for a doc written before postures existed", () => {
+    const doc = parseGraphDoc({
+      ...createSeedDoc(),
+      panel: { collapsed: false, tab: "agent", width: 420 },
+    });
+
+    expect(doc?.panel.posture).toBe("split");
+  });
+
+  test("rejects an unknown posture", () => {
+    expect(
+      parseGraphDoc({
+        ...createSeedDoc(),
+        panel: {
+          collapsed: false,
+          posture: "floating",
+          tab: "agent",
+          width: 420,
+        },
+      })
+    ).toBeNull();
+  });
+});
+
+describe("panel posture", () => {
+  test("a fresh project opens its panel as a peek overlay", () => {
+    expect(createSeedDoc().panel.posture).toBe("peek");
+  });
 });
