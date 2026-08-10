@@ -1,8 +1,25 @@
 import path from "node:path";
+import {
+  buildBrief,
+  buildHistoryMessages,
+  type InheritSource,
+  pathMappingNote,
+} from "@/lib/agent/inherit";
 import { EventQueue } from "@/lib/queue";
 import type { AgentConfig, AgentDriverId, AgentEvent } from "@/types/agent";
-import type { AgentDriver, AgentTurnHandle } from "./driver";
-import { type AgentRegistry, loadRegistry, saveRegistry } from "./registry";
+import type { AgentDriver, AgentTurnHandle, StartTurnInput } from "./driver";
+import {
+  clearPendingInheritance,
+  type PendingInheritance,
+  readPendingInheritance,
+  writePendingInheritance,
+} from "./inheritance";
+import {
+  type AgentRegistry,
+  loadRegistry,
+  saveRegistry,
+  type WorktreeAgentState,
+} from "./registry";
 import { appendTranscript, readTranscript } from "./transcript";
 
 const FLUSH_MS = 50;
@@ -268,6 +285,7 @@ function closeTurnIfLive(worktreePath: string, turn: ActiveTurn): void {
 export async function getConfig(worktreePath: string): Promise<{
   config: AgentConfig;
   hasConversation: boolean;
+  inherited: WorktreeAgentState["inherited"] | null;
   turnActive: boolean;
 }> {
   const dir = await baseDir();
@@ -279,6 +297,7 @@ export async function getConfig(worktreePath: string): Promise<{
       ? { driverId: entry.driverId, tier: entry.tier }
       : { driverId: registry.lastDriverId, tier: "accept-edits" },
     hasConversation: history.length > 0,
+    inherited: entry?.inherited ?? null,
     turnActive: turns.has(worktreePath),
   };
 }
@@ -318,6 +337,80 @@ async function persistIds(
   });
 }
 
+/**
+ * Prepares a child worktree's first turn to inherit its parent's
+ * conversation (increment 2). Digests the PARENT's transcript into a pending
+ * payload — brief markdown, or full role/text history plus a cc fork target
+ * — and stashes it beside the transcripts for `send()` to consume exactly
+ * once. Also copies the parent's driver+tier onto the child's registry entry
+ * so the fork (when applicable) lands on the same vendor, and records
+ * `inherited` for the UI badge. Refuses (writing nothing) when the parent
+ * has no conversation to digest.
+ */
+export async function prepareInheritance(input: {
+  childWorktree: string;
+  mode: "brief" | "full";
+  parentLabel: string;
+  parentWorktree: string;
+}): Promise<{ ok: boolean; reason?: string }> {
+  const dir = await baseDir();
+  const events = await readTranscript(dir, input.parentWorktree);
+  if (!events.some((event) => event.kind === "user-message")) {
+    return { ok: false, reason: "The parent has no conversation to inherit." };
+  }
+
+  const source: InheritSource = {
+    childWorktree: input.childWorktree,
+    parentLabel: input.parentLabel,
+    parentWorktree: input.parentWorktree,
+  };
+  const note = pathMappingNote(source);
+  const parentRegistry = await loadRegistry(dir);
+  const parentEntry = parentRegistry.worktrees[input.parentWorktree];
+
+  const pending: PendingInheritance =
+    input.mode === "brief"
+      ? {
+          brief: buildBrief(events, source),
+          mode: "brief",
+          note,
+          parentWorktree: input.parentWorktree,
+        }
+      : {
+          history: buildHistoryMessages(events),
+          mode: "full",
+          note,
+          parentSessionId:
+            parentEntry?.driverId === "claude-code"
+              ? (parentEntry.sessionId ?? undefined)
+              : undefined,
+          parentWorktree: input.parentWorktree,
+        };
+  await writePendingInheritance(dir, input.childWorktree, pending);
+
+  await updateRegistry((registry) => {
+    const parent = registry.worktrees[input.parentWorktree];
+    const config: AgentConfig = parent
+      ? { driverId: parent.driverId, tier: parent.tier }
+      : { driverId: registry.lastDriverId, tier: "accept-edits" };
+    const existingChild = registry.worktrees[input.childWorktree];
+    registry.worktrees[input.childWorktree] = {
+      driverId: config.driverId,
+      inherited: {
+        at: Date.now(),
+        from: input.parentWorktree,
+        mode: input.mode,
+      },
+      sessionId: existingChild?.sessionId ?? null,
+      threadId: existingChild?.threadId ?? null,
+      tier: config.tier,
+      updatedAt: Date.now(),
+    };
+  });
+
+  return { ok: true };
+}
+
 export async function send(
   worktreePath: string,
   text: string
@@ -348,16 +441,41 @@ export async function send(
     if (!entry) {
       await setConfig(worktreePath, config);
     }
-    const resume = {
+
+    // Consume-on-first-send: a pending inheritance (prepareInheritance)
+    // reshapes this turn's prompt/resume/inject exactly once. Cleared below
+    // only after driver.startTurn is reached, so a failed start leaves it
+    // intact for a retry — see the catch block.
+    const pending = await readPendingInheritance(dir, worktreePath);
+    let prompt = trimmed;
+    let resume: StartTurnInput["resume"] = {
       sessionId: entry?.sessionId ?? null,
       threadId: entry?.threadId ?? null,
     };
+    let inject: StartTurnInput["inject"];
+    if (pending?.mode === "brief") {
+      prompt = `${pending.brief}\n\n---\n\n${trimmed}`;
+    } else if (pending?.mode === "full") {
+      if (entry?.driverId === "claude-code" && pending.parentSessionId) {
+        resume = {
+          fork: true,
+          sessionId: pending.parentSessionId,
+          threadId: null,
+        };
+      } else {
+        inject = [
+          { role: "user", text: pending.note },
+          ...(pending.history ?? []),
+        ];
+      }
+    }
 
     const driver = await driverFor(config.driverId);
     handle = driver.startTurn({
+      inject,
       onSessionId: (id) => persistIds(worktreePath, { sessionId: id }),
       onThreadId: (id) => persistIds(worktreePath, { threadId: id }),
-      prompt: trimmed,
+      prompt,
       requestPermission: (request) =>
         new Promise<boolean>((resolve) => {
           const forWorktree = pendingPermissions.get(worktreePath) ?? new Map();
@@ -393,6 +511,10 @@ export async function send(
       tier: config.tier,
       worktreePath,
     });
+
+    if (pending) {
+      await clearPendingInheritance(dir, worktreePath);
+    }
   } catch (error) {
     // The reservation must not outlive a failed start.
     turns.delete(worktreePath);

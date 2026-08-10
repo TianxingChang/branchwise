@@ -2,6 +2,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
+import { readPendingInheritance } from "@/ipc/agent/inheritance";
 import {
   _resetManagerForTests,
   attachAgent,
@@ -9,6 +10,7 @@ import {
   detachAgent,
   getConfig,
   interruptTurn,
+  prepareInheritance,
   readHistory,
   respondPermission,
   send,
@@ -778,5 +780,159 @@ describe("agent session manager", () => {
           e.approved === false
       )
     ).toBe(true);
+  });
+
+  // --- Increment 2, Task 3: prepareInheritance + consume-on-first-send.
+  test("prepare(brief) then first send prefixes the brief, clears pending, and records inherited in the registry", async () => {
+    const puppet = puppetDriver();
+    configureManager({
+      baseDir: base,
+      drivers: { "claude-code": puppet.driver },
+    });
+    const PARENT_WT = "/wt/feat-parent";
+    const CHILD_WT = "/wt/feat-child";
+
+    await setConfig(PARENT_WT, {
+      driverId: "claude-code",
+      tier: "accept-edits",
+    });
+    await send(PARENT_WT, "Add retry logic to the sync engine.");
+    puppet.feed({ kind: "turn-started", turnId: "p1" });
+    puppet.feed({ kind: "text-delta", text: "Added retries." });
+    puppet.feed({
+      costUsd: 0.1,
+      kind: "turn-done",
+      stopReason: "completed",
+      turnId: "p1",
+      usage: null,
+    });
+    puppet.end();
+    await settleUntil(async () =>
+      (await readHistory(PARENT_WT)).some((e) => e.kind === "turn-done")
+    );
+
+    const prepared = await prepareInheritance({
+      childWorktree: CHILD_WT,
+      mode: "brief",
+      parentLabel: "feat/parent",
+      parentWorktree: PARENT_WT,
+    });
+    expect(prepared.ok).toBe(true);
+    expect(await readPendingInheritance(base, CHILD_WT)).not.toBeNull();
+
+    expect((await send(CHILD_WT, "Please continue.")).accepted).toBe(true);
+    const prompt = puppet.input()?.prompt ?? "";
+    // Starts with the brief (its heading names the parent label)...
+    expect(prompt.startsWith("# feat/parent")).toBe(true);
+    expect(prompt).toContain("Add retry logic to the sync engine.");
+    // ...and ends with the user's own text behind the contract's separator.
+    expect(prompt.endsWith("\n\n---\n\nPlease continue.")).toBe(true);
+
+    // Consumed exactly once: the pending file is gone after the turn started.
+    expect(await readPendingInheritance(base, CHILD_WT)).toBeNull();
+    const registry = await loadRegistry(base);
+    expect(registry.worktrees[CHILD_WT]).toMatchObject({
+      // Config follows the PARENT's entry so the fork lands on the same vendor.
+      driverId: "claude-code",
+      inherited: { from: PARENT_WT, mode: "brief" },
+      tier: "accept-edits",
+    });
+
+    puppet.feed({
+      costUsd: null,
+      kind: "turn-done",
+      stopReason: "completed",
+      turnId: "c1",
+      usage: null,
+    });
+    puppet.end();
+  });
+
+  test("prepare(full) with a parent session forks claude-code's resume and leaves the prompt untouched", async () => {
+    const puppet = puppetDriver();
+    configureManager({
+      baseDir: base,
+      drivers: { "claude-code": puppet.driver },
+    });
+    const PARENT_WT = "/wt/feat-parent-2";
+    const CHILD_WT = "/wt/feat-child-2";
+
+    await setConfig(PARENT_WT, {
+      driverId: "claude-code",
+      tier: "accept-edits",
+    });
+    await send(PARENT_WT, "Add retry logic to the sync engine.");
+    puppet.input()?.onSessionId("parent-s1");
+    puppet.feed({
+      costUsd: null,
+      kind: "turn-done",
+      stopReason: "completed",
+      turnId: "p1",
+      usage: null,
+    });
+    puppet.end();
+    // persistIds's registry write is a separate fs chain from the
+    // transcript's — poll it directly (mirrors the "session ids persist"
+    // test above) so prepareInheritance cannot read a stale sessionId.
+    await settleUntil(
+      async () =>
+        (await loadRegistry(base)).worktrees[PARENT_WT]?.sessionId ===
+        "parent-s1"
+    );
+
+    const prepared = await prepareInheritance({
+      childWorktree: CHILD_WT,
+      mode: "full",
+      parentLabel: "feat/parent-2",
+      parentWorktree: PARENT_WT,
+    });
+    expect(prepared.ok).toBe(true);
+    expect(
+      (await loadRegistry(base)).worktrees[CHILD_WT]?.inherited?.mode
+    ).toBe("full");
+
+    expect((await send(CHILD_WT, "Please continue.")).accepted).toBe(true);
+    expect(puppet.input()?.resume).toEqual({
+      fork: true,
+      sessionId: "parent-s1",
+      threadId: null,
+    });
+    expect(puppet.input()?.prompt).toBe("Please continue.");
+    // The fork branch carries history through cc's own session, not inject.
+    expect(puppet.input()?.inject).toBeUndefined();
+
+    puppet.feed({
+      costUsd: null,
+      kind: "turn-done",
+      stopReason: "completed",
+      turnId: "c1",
+      usage: null,
+    });
+    puppet.end();
+  });
+
+  test("prepare refuses when the parent transcript has no conversation, writing nothing", async () => {
+    const puppet = puppetDriver();
+    configureManager({
+      baseDir: base,
+      drivers: { "claude-code": puppet.driver },
+    });
+    const PARENT_WT = "/wt/feat-empty-parent";
+    const CHILD_WT = "/wt/feat-child-3";
+
+    const result = await prepareInheritance({
+      childWorktree: CHILD_WT,
+      mode: "brief",
+      parentLabel: "feat/empty-parent",
+      parentWorktree: PARENT_WT,
+    });
+    expect(result).toEqual({
+      ok: false,
+      reason: "The parent has no conversation to inherit.",
+    });
+
+    expect(await readPendingInheritance(base, CHILD_WT)).toBeNull();
+    const registry = await loadRegistry(base);
+    expect(registry.worktrees[CHILD_WT]).toBeUndefined();
   });
 });
