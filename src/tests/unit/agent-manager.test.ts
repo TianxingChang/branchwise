@@ -1098,4 +1098,59 @@ describe("agent session manager", () => {
     expect(observedPending).toBe(true);
     expect(observedPendingWithoutEntry).toBe(false);
   });
+
+  // --- Controller's real-CLI acceptance smoke deterministically confirmed
+  // the residual flagged in the prior fix round: setConfig's object literal
+  // fully replaces the registry entry, so ANY setConfig call after
+  // prepareInheritance — the config bar in product, the smoke's own tier
+  // call — permanently erased the `inherited` badge/provenance record.
+  test("setConfig after prepareInheritance keeps the inherited record intact", async () => {
+    const puppet = puppetDriver();
+    configureManager({
+      baseDir: base,
+      drivers: { "claude-code": puppet.driver },
+    });
+    const PARENT_WT = "/wt/feat-parent-provenance";
+    const CHILD_WT = "/wt/feat-child-provenance";
+
+    await setConfig(PARENT_WT, {
+      driverId: "claude-code",
+      tier: "accept-edits",
+    });
+    await send(PARENT_WT, "Add retry logic to the sync engine.");
+    puppet.feed({
+      costUsd: null,
+      kind: "turn-done",
+      stopReason: "completed",
+      turnId: "p1",
+      usage: null,
+    });
+    puppet.end();
+    await settleUntil(async () =>
+      (await readHistory(PARENT_WT)).some((e) => e.kind === "turn-done")
+    );
+
+    const prepared = await prepareInheritance({
+      childWorktree: CHILD_WT,
+      mode: "brief",
+      parentLabel: "feat/parent-provenance",
+      parentWorktree: PARENT_WT,
+    });
+    expect(prepared.ok).toBe(true);
+
+    // A different driver AND tier, so the assertion below can only pass if
+    // the new config actually applied — not just that inherited survived.
+    await setConfig(CHILD_WT, { driverId: "codex", tier: "yolo" });
+
+    const registry = await loadRegistry(base);
+    expect(registry.worktrees[CHILD_WT]).toMatchObject({
+      driverId: "codex",
+      inherited: {
+        from: PARENT_WT,
+        mode: "brief",
+        parentLabel: "feat/parent-provenance",
+      },
+      tier: "yolo",
+    });
+  });
 });

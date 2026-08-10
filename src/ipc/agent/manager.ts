@@ -311,6 +311,12 @@ export async function setConfig(
     const entry = registry.worktrees[worktreePath];
     registry.worktrees[worktreePath] = {
       driverId: config.driverId,
+      // Carried through, not just defaulted like sessionId/threadId below:
+      // this is the ONE field a config change must never erase. Without it,
+      // any setConfig after prepareInheritance — the config bar, or even
+      // send()'s own `!entry` fallback — permanently wipes the badge and
+      // provenance, since this whole object literal replaces the entry.
+      ...(entry?.inherited ? { inherited: entry.inherited } : {}),
       sessionId: entry?.sessionId ?? null,
       threadId: entry?.threadId ?? null,
       tier: config.tier,
