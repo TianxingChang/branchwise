@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, test } from "vitest";
@@ -40,10 +40,8 @@ describe("pending inheritance store", () => {
 
   test("corrupt file returns null and leaves bytes untouched", async () => {
     const childWt = "/child/wt";
-    const inheritDir = path.join(base, "inherited");
     const hash = worktreeHash(childWt);
-    await mkdir(inheritDir, { recursive: true });
-    const corruptFile = path.join(inheritDir, `inherit-${hash}.json`);
+    const corruptFile = path.join(base, `inherit-${hash}.json`);
     await writeFile(corruptFile, "{not json", "utf8");
     const read = await readPendingInheritance(base, childWt);
     expect(read).toBeNull();

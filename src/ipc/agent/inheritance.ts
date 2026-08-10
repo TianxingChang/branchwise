@@ -3,15 +3,6 @@ import path from "node:path";
 import { z } from "zod";
 import { worktreeHash } from "./transcript";
 
-export interface PendingInheritance {
-  brief?: string;
-  history?: { role: "assistant" | "user"; text: string }[];
-  mode: "brief" | "full";
-  note: string;
-  parentSessionId?: string;
-  parentWorktree: string;
-}
-
 const pendingInheritanceSchema = z.object({
   brief: z.string().optional(),
   history: z
@@ -24,16 +15,15 @@ const pendingInheritanceSchema = z.object({
     .optional(),
   mode: z.enum(["brief", "full"]),
   note: z.string(),
+  // cc full tier: fork source
   parentSessionId: z.string().optional(),
   parentWorktree: z.string(),
 });
 
+export type PendingInheritance = z.infer<typeof pendingInheritanceSchema>;
+
 function inheritanceFile(baseDir: string, childWorktree: string): string {
-  return path.join(
-    baseDir,
-    "inherited",
-    `inherit-${worktreeHash(childWorktree)}.json`
-  );
+  return path.join(baseDir, `inherit-${worktreeHash(childWorktree)}.json`);
 }
 
 /**
@@ -45,9 +35,7 @@ export async function writePendingInheritance(
   childWorktree: string,
   pending: PendingInheritance
 ): Promise<void> {
-  await mkdir(path.dirname(inheritanceFile(baseDir, childWorktree)), {
-    recursive: true,
-  });
+  await mkdir(baseDir, { recursive: true });
   const file = inheritanceFile(baseDir, childWorktree);
   const tmp = `${file}.tmp`;
   await writeFile(tmp, JSON.stringify(pending, null, 2), "utf8");
@@ -77,9 +65,5 @@ export async function clearPendingInheritance(
   baseDir: string,
   childWorktree: string
 ): Promise<void> {
-  try {
-    await rm(inheritanceFile(baseDir, childWorktree), { force: true });
-  } catch {
-    // Idempotent: missing files are not an error.
-  }
+  await rm(inheritanceFile(baseDir, childWorktree), { force: true });
 }
