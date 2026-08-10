@@ -6,6 +6,7 @@ import {
   detachAgent,
   getConfig,
   interruptTurn,
+  prepareInheritance,
   readHistory,
   respondPermission,
   send,
@@ -67,10 +68,25 @@ export const getAgentConfig = os
     z.object({
       config: agentConfigSchema,
       hasConversation: z.boolean(),
+      inherited: z
+        .object({
+          at: z.number(),
+          from: z.string(),
+          mode: z.enum(["brief", "full"]),
+        })
+        .nullable(),
       turnActive: z.boolean(),
     })
   )
-  .handler(({ input }) => getConfig(input.worktreePath));
+  .handler(async ({ input }) => {
+    const result = await getConfig(input.worktreePath);
+    return {
+      config: result.config,
+      hasConversation: result.hasConversation,
+      inherited: result.inherited ?? null,
+      turnActive: result.turnActive,
+    };
+  });
 
 export const setAgentConfig = os
   .input(worktreeInput.extend({ config: agentConfigSchema }))
@@ -79,6 +95,25 @@ export const setAgentConfig = os
     await setConfig(input.worktreePath, input.config);
     return { ok: true as const };
   });
+
+export const prepareInheritanceRoute = os
+  .input(
+    z.object({
+      childWorktree: z.string().min(1),
+      mode: z.enum(["brief", "full"]),
+      parentLabel: z.string().min(1),
+      parentWorktree: z.string().min(1),
+    })
+  )
+  .output(z.object({ ok: z.boolean(), reason: z.string().optional() }))
+  .handler(({ input }) =>
+    prepareInheritance({
+      childWorktree: input.childWorktree,
+      mode: input.mode,
+      parentLabel: input.parentLabel,
+      parentWorktree: input.parentWorktree,
+    })
+  );
 
 export const history = os
   .input(worktreeInput)

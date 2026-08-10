@@ -38,3 +38,12 @@ export function setAgentConfig(worktreePath: string, config: AgentConfig) {
 export function agentHistory(worktreePath: string): Promise<AgentEvent[]> {
   return ipc.client.agent.history({ worktreePath });
 }
+
+export function prepareAgentInheritance(input: {
+  childWorktree: string;
+  mode: "brief" | "full";
+  parentLabel: string;
+  parentWorktree: string;
+}): Promise<{ ok: boolean; reason?: string }> {
+  return ipc.client.agent.prepareInheritance(input);
+}

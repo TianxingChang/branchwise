@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, test } from "vitest";
 import {
   attach,
   history,
+  prepareInheritanceRoute,
   respondPermissionRoute,
   sendMessage,
 } from "@/ipc/agent/handlers";
@@ -101,6 +102,17 @@ describe("agent handlers", () => {
       approved: true,
       requestId: "nope",
       worktreePath: WT,
+    });
+    expect(result.ok).toBe(false);
+  });
+
+  test("prepareInheritance with an empty parent refuses {ok:false}", async () => {
+    configureManager({ baseDir: base, drivers: {} });
+    const result = await prepareInheritanceRoute.callable()({
+      childWorktree: "/wt/child",
+      mode: "brief",
+      parentLabel: "parent",
+      parentWorktree: WT,
     });
     expect(result.ok).toBe(false);
   });

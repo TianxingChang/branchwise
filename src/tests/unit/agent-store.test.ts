@@ -42,6 +42,7 @@ function fakeActions(history: AgentEvent[], replayThenLive: AgentEvent[]) {
           tier: "accept-edits" as const,
         },
         hasConversation: history.length > 0,
+        inherited: null,
         turnActive: false,
       }),
     interruptAgent: (wt: string) => {
