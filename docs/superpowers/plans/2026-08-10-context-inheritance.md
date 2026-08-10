@@ -219,7 +219,11 @@ inherited: z
     mode: z.enum(["brief", "full"]),
     // The human-facing provenance label. The path in `from` is machine
     // identity; a root parent's path tail is the folder name, not "main".
-    parentLabel: z.string(),
+    // Optional at the PERSISTED boundary only (fresh writes always set it):
+    // zod's record parse is all-or-nothing, so a required field would make
+    // loadRegistry discard ENTIRE pre-migration registries, not just the
+    // label (empirically verified against zod 4.4.3 during review).
+    parentLabel: z.string().optional(),
   })
   .optional(),
 
