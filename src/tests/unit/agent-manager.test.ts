@@ -935,4 +935,165 @@ describe("agent session manager", () => {
     const registry = await loadRegistry(base);
     expect(registry.worktrees[CHILD_WT]).toBeUndefined();
   });
+
+  // --- Review finding: prepareInheritance's two writes were not atomic as a
+  // pair (pending file first, registry entry second). A send() racing in
+  // between could read the pending payload while the registry entry was
+  // still missing — silently downgrading a claude-code full inheritance to
+  // the inject path, and (via send's own `!entry` setConfig fallback)
+  // risking clobbering the entry's `inherited` field once it did land.
+  // Fixed by writing the registry FIRST: a racing send() can then only ever
+  // observe "entry, no pending yet" (an ordinary fresh turn — fine) or
+  // "entry with pending" (fully offered) — never "pending without entry".
+  test("prepareInheritance racing an immediate send() never applies the brief without the registry recording inherited", async () => {
+    const puppet = puppetDriver();
+    configureManager({
+      baseDir: base,
+      drivers: { "claude-code": puppet.driver },
+    });
+    const PARENT_WT = "/wt/feat-parent-race";
+    const CHILD_WT = "/wt/feat-child-race";
+
+    await setConfig(PARENT_WT, {
+      driverId: "claude-code",
+      tier: "accept-edits",
+    });
+    await send(PARENT_WT, "Add retry logic to the sync engine.");
+    puppet.feed({
+      costUsd: null,
+      kind: "turn-done",
+      stopReason: "completed",
+      turnId: "p1",
+      usage: null,
+    });
+    puppet.end();
+    await settleUntil(async () =>
+      (await readHistory(PARENT_WT)).some((e) => e.kind === "turn-done")
+    );
+
+    // No settle between prepare and send: races prepareInheritance's two
+    // writes against send()'s own registry+pending reads as tightly as this
+    // test can manage. CHILD_WT has never been configured, so send() also
+    // exercises its own `!entry` setConfig fallback concurrently.
+    const [prepared, sent] = await Promise.all([
+      prepareInheritance({
+        childWorktree: CHILD_WT,
+        mode: "brief",
+        parentLabel: "feat/parent-race",
+        parentWorktree: PARENT_WT,
+      }),
+      send(CHILD_WT, "Please continue."),
+    ]);
+    expect(prepared.ok).toBe(true);
+    expect(sent.accepted).toBe(true);
+
+    // Both promises above are fully resolved already — prepareInheritance's
+    // own writes (registry, then pending) completed inside its own awaited
+    // body, and send()'s own decision (whatever it read mid-race) is baked
+    // into whatever it handed the driver. Poll the transcript purely for
+    // hygiene (draining the user-message write before teardown), not
+    // because the checks below need it to settle further.
+    await settleUntil(async () =>
+      (await readHistory(CHILD_WT)).some((e) => e.kind === "user-message")
+    );
+
+    const prompt = puppet.input()?.prompt ?? "";
+    const briefApplied = prompt.includes("Add retry logic to the sync engine.");
+    const registry = await loadRegistry(base);
+    const inheritedRecorded =
+      registry.worktrees[CHILD_WT]?.inherited?.mode === "brief";
+
+    // The one outcome the write-ordering fix must rule out: a turn that got
+    // the brief from a pending file whose registry-side `inherited` record
+    // hadn't landed (or got clobbered by this same send()'s own setConfig
+    // fallback). "entry exists, pending doesn't yet" — brief not applied —
+    // is fine and expected some of the time; "pending exists, entry
+    // doesn't" must be impossible, in the final state as well as in transit.
+    if (briefApplied) {
+      expect(inheritedRecorded).toBe(true);
+    }
+
+    puppet.feed({
+      costUsd: null,
+      kind: "turn-done",
+      stopReason: "completed",
+      turnId: "c1",
+      usage: null,
+    });
+    puppet.end();
+  });
+
+  // --- Same review finding as above, verified more directly: a
+  // Promise.all race against a single send() depends on lucky timing to
+  // ever land inside the narrow window between prepareInheritance's two
+  // writes (confirmed empirically: reverting the write-order fix did not
+  // make the test above fail across 25 runs). This test instead samples
+  // on-disk state repeatedly WHILE prepareInheritance is still in flight,
+  // which reliably lands inside that window (reverting the fix reliably
+  // fails this test) — the direct, deterministic check that the pending
+  // file is never observable before the registry entry it depends on.
+  test("prepareInheritance never makes the pending file observable before its registry entry lands", async () => {
+    const puppet = puppetDriver();
+    configureManager({
+      baseDir: base,
+      drivers: { "claude-code": puppet.driver },
+    });
+    const PARENT_WT = "/wt/feat-parent-order";
+    const CHILD_WT = "/wt/feat-child-order";
+
+    await setConfig(PARENT_WT, {
+      driverId: "claude-code",
+      tier: "accept-edits",
+    });
+    await send(PARENT_WT, "Add retry logic to the sync engine.");
+    puppet.feed({
+      costUsd: null,
+      kind: "turn-done",
+      stopReason: "completed",
+      turnId: "p1",
+      usage: null,
+    });
+    puppet.end();
+    await settleUntil(async () =>
+      (await readHistory(PARENT_WT)).some((e) => e.kind === "turn-done")
+    );
+
+    const preparePromise = prepareInheritance({
+      childWorktree: CHILD_WT,
+      mode: "brief",
+      parentLabel: "feat/parent-order",
+      parentWorktree: PARENT_WT,
+    });
+
+    // No fake-timer advancement needed: nothing in prepareInheritance's path
+    // uses setTimeout, so a tight loop of real fs reads races its real fs
+    // writes directly. observedPending asserts this loop actually caught
+    // the payload mid-flight at least once — otherwise a "no bad window
+    // seen" result would be meaningless (the loop finished before prepare
+    // even started writing).
+    let observedPending = false;
+    let observedPendingWithoutEntry = false;
+    for (let i = 0; i < 500; i += 1) {
+      // Sequential by nature: this is a temporal poll racing prepare's real
+      // fs writes — each sample must land before the next fires, spreading
+      // the reads across prepare's actual progress. Promise.all across
+      // iterations would collapse them into one snapshot at time zero,
+      // defeating the poll entirely.
+      // biome-ignore lint/performance/noAwaitInLoops: see above
+      const [pending, registry] = await Promise.all([
+        readPendingInheritance(base, CHILD_WT),
+        loadRegistry(base),
+      ]);
+      if (pending) {
+        observedPending = true;
+        if (registry.worktrees[CHILD_WT]?.inherited?.mode !== "brief") {
+          observedPendingWithoutEntry = true;
+        }
+      }
+    }
+    await preparePromise;
+
+    expect(observedPending).toBe(true);
+    expect(observedPendingWithoutEntry).toBe(false);
+  });
 });

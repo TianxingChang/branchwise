@@ -134,6 +134,7 @@ export function _resetManagerForTests(): void {
   subscribers.clear();
   pendingPermissions.clear();
   emitChains.clear();
+  prepareChains.clear();
   state.baseDir = null;
   state.drivers = {};
   registryQueue = Promise.resolve();
@@ -338,6 +339,14 @@ async function persistIds(
 }
 
 /**
+ * Serializes `prepareInheritance` per CHILD worktree — same chaining
+ * pattern as `emitChains`/`registryQueue` above. Without this, two
+ * concurrent prepares for the same child would race
+ * `writePendingInheritance`'s fixed `.tmp` path.
+ */
+const prepareChains = new Map<string, Promise<void>>();
+
+/**
  * Prepares a child worktree's first turn to inherit its parent's
  * conversation (increment 2). Digests the PARENT's transcript into a pending
  * payload — brief markdown, or full role/text history plus a cc fork target
@@ -347,7 +356,29 @@ async function persistIds(
  * `inherited` for the UI badge. Refuses (writing nothing) when the parent
  * has no conversation to digest.
  */
-export async function prepareInheritance(input: {
+export function prepareInheritance(input: {
+  childWorktree: string;
+  mode: "brief" | "full";
+  parentLabel: string;
+  parentWorktree: string;
+}): Promise<{ ok: boolean; reason?: string }> {
+  const tail = prepareChains.get(input.childWorktree) ?? Promise.resolve();
+  const next = tail.then(() => prepareInheritanceOnce(input));
+  // Same never-poison-the-chain trick as registryQueue: store a variant that
+  // always resolves, so one failed prepare cannot wedge later prepares for
+  // the same child behind a permanently-rejected promise. The caller still
+  // observes the real outcome (or rejection) through the returned `next`.
+  prepareChains.set(
+    input.childWorktree,
+    next.then(
+      () => undefined,
+      () => undefined
+    )
+  );
+  return next;
+}
+
+async function prepareInheritanceOnce(input: {
   childWorktree: string;
   mode: "brief" | "full";
   parentLabel: string;
@@ -386,8 +417,18 @@ export async function prepareInheritance(input: {
               : undefined,
           parentWorktree: input.parentWorktree,
         };
-  await writePendingInheritance(dir, input.childWorktree, pending);
 
+  // Registry FIRST, pending file SECOND: a send() racing this call must
+  // never be able to see the pending file before the registry entry it
+  // depends on. The old order (pending first) let a racing send() read the
+  // pending payload while the child's entry was still missing — silently
+  // downgrading a claude-code full inheritance to the inject path (send
+  // falls back to a plain config instead of the parent's) and, via send's
+  // own `!entry` setConfig fallback, risking overwriting this entry's
+  // `inherited` field entirely. The remaining window under this order —
+  // entry present, pending not yet written — just looks like an ordinary
+  // fresh turn to a racing send(): inheritance simply hasn't finished being
+  // offered yet, which is fine.
   await updateRegistry((registry) => {
     const parent = registry.worktrees[input.parentWorktree];
     const config: AgentConfig = parent
@@ -407,6 +448,7 @@ export async function prepareInheritance(input: {
       updatedAt: Date.now(),
     };
   });
+  await writePendingInheritance(dir, input.childWorktree, pending);
 
   return { ok: true };
 }
@@ -431,8 +473,14 @@ export async function send(
   turns.set(worktreePath, RESERVED_TURN);
 
   let handle: AgentTurnHandle;
+  // Hoisted above the try (matching `handle`) so the fire-and-forget clear
+  // further below — after the turn is confirmed live — can still reach
+  // them. Deliberately NOT read or cleared inside the try/catch itself; see
+  // both usage sites for why.
+  let dir: string;
+  let pending: PendingInheritance | null;
   try {
-    const dir = await baseDir();
+    dir = await baseDir();
     const registry = await loadRegistry(dir);
     const entry = registry.worktrees[worktreePath];
     const config: AgentConfig = entry
@@ -443,10 +491,8 @@ export async function send(
     }
 
     // Consume-on-first-send: a pending inheritance (prepareInheritance)
-    // reshapes this turn's prompt/resume/inject exactly once. Cleared below
-    // only after driver.startTurn is reached, so a failed start leaves it
-    // intact for a retry — see the catch block.
-    const pending = await readPendingInheritance(dir, worktreePath);
+    // reshapes this turn's prompt/resume/inject exactly once.
+    pending = await readPendingInheritance(dir, worktreePath);
     let prompt = trimmed;
     let resume: StartTurnInput["resume"] = {
       sessionId: entry?.sessionId ?? null,
@@ -511,10 +557,6 @@ export async function send(
       tier: config.tier,
       worktreePath,
     });
-
-    if (pending) {
-      await clearPendingInheritance(dir, worktreePath);
-    }
   } catch (error) {
     // The reservation must not outlive a failed start.
     turns.delete(worktreePath);
@@ -532,6 +574,20 @@ export async function send(
     timer: null,
   };
   turns.set(worktreePath, turn); // replaces the reservation
+
+  if (pending) {
+    // Fire-and-forget, deliberately decoupled from the try/catch above: the
+    // turn is already live and its handle already stored (turns.set just
+    // above), so a clear failure here must never be mistaken for a failed
+    // start — that previously ran turns.delete + returned accepted:false
+    // while this live turn kept running, unobservable (its handle never
+    // stored, events never iterated, interrupt unreachable). rm's
+    // force:true only swallows ENOENT; EBUSY/EPERM etc. still throw here.
+    // Worst case on a genuine fs error, the NEXT send() re-reads and
+    // re-consumes this same still-valid pending file.
+    clearPendingInheritance(dir, worktreePath).catch(() => undefined);
+  }
+
   await enqueueEmit(worktreePath, { kind: "user-message", text: trimmed });
 
   (async () => {
