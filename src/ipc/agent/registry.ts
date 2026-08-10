@@ -5,6 +5,13 @@ import { agentDriverIdSchema, permissionTierSchema } from "@/types/agent";
 
 const worktreeAgentStateSchema = z.object({
   driverId: agentDriverIdSchema,
+  inherited: z
+    .object({
+      at: z.number(),
+      from: z.string(),
+      mode: z.enum(["brief", "full"]),
+    })
+    .optional(),
   sessionId: z.string().nullable(),
   threadId: z.string().nullable(),
   tier: permissionTierSchema,
