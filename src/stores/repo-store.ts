@@ -1,4 +1,5 @@
 import { create } from "zustand";
+import { prepareAgentInheritance } from "@/actions/agent";
 import { loadGraph, saveGraph } from "@/actions/project";
 import {
   createWorktree,
@@ -49,12 +50,21 @@ export interface ProjectState {
 
 export type MutationResult = { ok: true } | { error: string; ok: false };
 
+/** A draft's chosen mode, resolved against its parent — `createBranch` calls
+ * `prepareAgentInheritance` with this once the worktree exists. */
+export interface InheritSelection {
+  mode: "brief" | "full";
+  parentLabel: string;
+  parentWorktree: string;
+}
+
 interface RepoStoreState {
   close: (folder: string) => void;
   createBranch: (
     folder: string,
     startPoint: string,
-    name: string
+    name: string,
+    inherit?: InheritSelection | null
   ) => Promise<MutationResult>;
   deleteNode: (
     folder: string,
@@ -261,7 +271,7 @@ export const useRepoStore = create<RepoStoreState>()((set, get) => {
       }
     },
 
-    createBranch: async (folder, startPoint, name) => {
+    createBranch: async (folder, startPoint, name, inherit) => {
       const current = get().projects[folder];
       if (!current?.repo) {
         return { error: "The repository is not ready yet.", ok: false };
@@ -273,12 +283,36 @@ export const useRepoStore = create<RepoStoreState>()((set, get) => {
           path: folder,
           startPoint,
         });
+
+        // A refused or failed inheritance is reported but never rolls back
+        // the worktree that already exists on disk — the branch still gets
+        // created and selected, just without the parent's context.
+        let inheritError: string | null = null;
+        if (inherit) {
+          try {
+            const outcome = await prepareAgentInheritance({
+              childWorktree: worktreePath,
+              mode: inherit.mode,
+              parentLabel: inherit.parentLabel,
+              parentWorktree: inherit.parentWorktree,
+            });
+            if (!outcome.ok) {
+              inheritError =
+                outcome.reason ??
+                "Could not inherit the parent's conversation.";
+            }
+          } catch (error) {
+            inheritError = messageFor(error);
+          }
+        }
+
         // Select it straight away — the watcher will deliver the node itself.
         mutateDoc(folder, (doc) => ({
           ...doc,
           selectedWorktree: worktreePath,
         }));
-        return { ok: true };
+
+        return inheritError ? { error: inheritError, ok: false } : { ok: true };
       } catch (error) {
         return { error: messageFor(error), ok: false };
       }

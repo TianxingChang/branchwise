@@ -15,11 +15,19 @@ import {
 } from "@/lib/agent/fold";
 import type { AgentConfig, AgentEvent } from "@/types/agent";
 
+/** What a worktree's first turn was seeded from, for the badge in AgentTab. */
+export interface AgentInheritance {
+  at: number;
+  from: string;
+  mode: "brief" | "full";
+}
+
 export interface AgentSession {
   attached: boolean;
   config: AgentConfig | null;
   conversation: ConversationState;
   hasConversation: boolean;
+  inherited: AgentInheritance | null;
 }
 
 const realActions = {
@@ -46,6 +54,7 @@ const EMPTY_SESSION: AgentSession = {
   config: null,
   conversation: emptyConversation(),
   hasConversation: false,
+  inherited: null,
 };
 
 /**
@@ -126,6 +135,7 @@ export const useAgentStore = create<AgentStoreState>()((set) => {
         config: meta.config,
         conversation: folded,
         hasConversation: meta.hasConversation,
+        inherited: meta.inherited,
       }));
 
       const stream = await actions.attachAgent(worktreePath, controller.signal);

@@ -3,7 +3,11 @@ import { afterEach, describe, expect, test, vi } from "vitest";
 import AgentTab from "@/components/panel/agent-tab";
 import type { ConversationItem } from "@/lib/agent/fold";
 import { emptyConversation } from "@/lib/agent/fold";
-import { _setAgentActionsForTests, useAgentStore } from "@/stores/agent-store";
+import {
+  _setAgentActionsForTests,
+  type AgentInheritance,
+  useAgentStore,
+} from "@/stores/agent-store";
 
 // The DiffStrip's fetch hangs deliberately (same no-act-noise discipline as
 // the agent actions below): these tests never assert on the strip, and
@@ -56,6 +60,7 @@ function stubActions() {
 function seedSession(overrides: {
   activeTurnId?: string | null;
   hasConversation?: boolean;
+  inherited?: AgentInheritance | null;
   items?: ConversationItem[];
   pendingPermission?: boolean;
 }) {
@@ -83,6 +88,7 @@ function seedSession(overrides: {
         config: { driverId: "claude-code", tier: "accept-edits" },
         conversation,
         hasConversation: overrides.hasConversation ?? false,
+        inherited: overrides.inherited ?? null,
       },
     },
   });
@@ -104,7 +110,15 @@ describe("AgentTab", () => {
   test("permission card approve/deny call respond with the request id", () => {
     const { respond } = stubActions();
     seedSession({ activeTurnId: "t1", pendingPermission: true });
-    render(<AgentTab branchLabel="feat-a" head="h1" parentBranch={null} projectFolder="/project" worktreePath={WT} />);
+    render(
+      <AgentTab
+        branchLabel="feat-a"
+        head="h1"
+        parentBranch={null}
+        projectFolder="/project"
+        worktreePath={WT}
+      />
+    );
     fireEvent.click(screen.getByRole("button", { name: APPROVE_BUTTON_NAME }));
     expect(respond).toHaveBeenCalledWith({
       approved: true,
@@ -116,7 +130,15 @@ describe("AgentTab", () => {
   test("permission card deny calls respond with approved:false", () => {
     const { respond } = stubActions();
     seedSession({ activeTurnId: "t1", pendingPermission: true });
-    render(<AgentTab branchLabel="feat-a" head="h1" parentBranch={null} projectFolder="/project" worktreePath={WT} />);
+    render(
+      <AgentTab
+        branchLabel="feat-a"
+        head="h1"
+        parentBranch={null}
+        projectFolder="/project"
+        worktreePath={WT}
+      />
+    );
     fireEvent.click(screen.getByRole("button", { name: DENY_BUTTON_NAME }));
     expect(respond).toHaveBeenCalledWith({
       approved: false,
@@ -128,7 +150,15 @@ describe("AgentTab", () => {
   test("composer is disabled while a turn is active, interrupt appears", () => {
     stubActions();
     seedSession({ activeTurnId: "t1" });
-    render(<AgentTab branchLabel="feat-a" head="h1" parentBranch={null} projectFolder="/project" worktreePath={WT} />);
+    render(
+      <AgentTab
+        branchLabel="feat-a"
+        head="h1"
+        parentBranch={null}
+        projectFolder="/project"
+        worktreePath={WT}
+      />
+    );
     expect(screen.getByRole("textbox")).toBeDisabled();
     expect(
       screen.getByRole("button", { name: INTERRUPT_BUTTON_NAME })
@@ -138,7 +168,15 @@ describe("AgentTab", () => {
   test("driver picker locks once a conversation exists", () => {
     stubActions();
     seedSession({ hasConversation: true });
-    render(<AgentTab branchLabel="feat-a" head="h1" parentBranch={null} projectFolder="/project" worktreePath={WT} />);
+    render(
+      <AgentTab
+        branchLabel="feat-a"
+        head="h1"
+        parentBranch={null}
+        projectFolder="/project"
+        worktreePath={WT}
+      />
+    );
     expect(screen.getByLabelText(AGENT_BACKEND_LABEL)).toBeDisabled();
   });
 
@@ -159,7 +197,35 @@ describe("AgentTab", () => {
         { id: "i1", kind: "user", text: "next" },
       ],
     });
-    render(<AgentTab branchLabel="feat-a" head="h1" parentBranch={null} projectFolder="/project" worktreePath={WT} />);
+    render(
+      <AgentTab
+        branchLabel="feat-a"
+        head="h1"
+        parentBranch={null}
+        projectFolder="/project"
+        worktreePath={WT}
+      />
+    );
     expect(screen.getByText("≈ $0.37")).toBeInTheDocument();
+  });
+
+  test("renders a badge for a session inherited from a parent", () => {
+    stubActions();
+    seedSession({
+      hasConversation: true,
+      inherited: { at: 1000, from: "/wt/feat-parent", mode: "brief" },
+    });
+    render(
+      <AgentTab
+        branchLabel="feat-a"
+        head="h1"
+        parentBranch={null}
+        projectFolder="/project"
+        worktreePath={WT}
+      />
+    );
+    expect(
+      screen.getByText("inherited from feat-parent (简报)")
+    ).toBeInTheDocument();
   });
 });

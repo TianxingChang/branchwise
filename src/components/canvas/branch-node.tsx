@@ -21,7 +21,7 @@ export type BranchNodeData = {
   isSelected: boolean;
   node: CanvasNode;
   onCancelDraft: () => void;
-  onCommitDraft: (name: string) => void;
+  onCommitDraft: (name: string, inherit: InheritMode) => void;
   onCommitRename: (name: string) => void;
   onDelete: () => void;
   onStartChild: () => void;
@@ -30,6 +30,9 @@ export type BranchNodeData = {
 };
 
 const CARD_SIZE = { height: NODE_HEIGHT, width: NODE_WIDTH };
+
+/** The draft card's three-way choice for seeding the new worktree's agent. */
+export type InheritMode = "none" | "brief" | "full";
 
 export function branchLabel(node: CanvasNode): string {
   return node.branch ?? detachedLabel(node.head);
@@ -48,6 +51,7 @@ function BranchNodeCard({ data }: NodeProps & { data: BranchNodeData }) {
           onCancel={data.onCancelDraft}
           onCommit={data.isRenaming ? data.onCommitRename : data.onCommitDraft}
           parentDirtyCount={data.isDraft ? data.parentDirtyCount : null}
+          parentWorktreePath={data.isDraft ? node.parentId : null}
         />
       </div>
     );
@@ -186,6 +190,12 @@ function BranchCard({
   );
 }
 
+/** Stopping the mousedown's default prevents the input from blurring (and
+ * thus committing) before the click handler on the pressed control runs. */
+function preventBlur(event: React.MouseEvent) {
+  event.preventDefault();
+}
+
 /**
  * The inline editor a draft node renders. Enter commits, Escape cancels, and a
  * dirty parent gets a warning rather than a block — the child starts from the
@@ -196,14 +206,26 @@ function BranchNameEditor({
   onCancel,
   onCommit,
   parentDirtyCount,
+  parentWorktreePath,
 }: {
   initialValue: string;
   onCancel: () => void;
-  onCommit: (name: string) => void;
+  onCommit: (name: string, inherit: InheritMode) => void;
   parentDirtyCount: number | null;
+  parentWorktreePath: string | null;
 }) {
   const [value, setValue] = useState(initialValue);
+  const [inheritMode, setInheritMode] = useState<InheritMode>("brief");
   const inputRef = useRef<HTMLInputElement>(null);
+
+  // Offering to inherit only makes sense once the parent has something to
+  // hand down — an empty conversation would seed the child with nothing.
+  const parentHasConversation = useAgentStore((state) =>
+    parentWorktreePath
+      ? selectSession(state, parentWorktreePath).hasConversation
+      : false
+  );
+  const showInherit = parentWorktreePath !== null && parentHasConversation;
 
   useEffect(() => {
     inputRef.current?.focus();
@@ -212,11 +234,11 @@ function BranchNameEditor({
 
   const commit = useCallback(() => {
     if (value.trim().length > 0) {
-      onCommit(value);
+      onCommit(value, showInherit ? inheritMode : "none");
     } else {
       onCancel();
     }
-  }, [onCancel, onCommit, value]);
+  }, [inheritMode, onCancel, onCommit, showInherit, value]);
 
   const handleChange = useCallback(
     (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -240,9 +262,8 @@ function BranchNameEditor({
     [commit, onCancel]
   );
 
-  const preventBlur = useCallback((event: React.MouseEvent) => {
-    event.preventDefault();
-  }, []);
+  const showHint =
+    showInherit || (parentDirtyCount !== null && parentDirtyCount > 0);
 
   return (
     <div className="relative h-full w-full">
@@ -271,14 +292,85 @@ function BranchNameEditor({
         </button>
       </div>
 
-      {parentDirtyCount !== null && parentDirtyCount > 0 ? (
-        <p className="absolute top-full left-0 mt-1.5 w-56 text-[10.5px] text-bw-pending leading-snug">
-          The parent has {parentDirtyCount} uncommitted{" "}
-          {parentDirtyCount === 1 ? "change" : "changes"}. The new branch starts
-          from its last commit.
-        </p>
+      {showHint ? (
+        <div className="absolute top-full left-0 mt-1.5 flex w-56 flex-col gap-1.5">
+          {showInherit ? (
+            <InheritControl onChange={setInheritMode} value={inheritMode} />
+          ) : null}
+          {parentDirtyCount !== null && parentDirtyCount > 0 ? (
+            <p className="text-[10.5px] text-bw-pending leading-snug">
+              The parent has {parentDirtyCount} uncommitted{" "}
+              {parentDirtyCount === 1 ? "change" : "changes"}. The new branch
+              starts from its last commit.
+            </p>
+          ) : null}
+        </div>
       ) : null}
     </div>
+  );
+}
+
+/** The compact 无/简报/完整历史 segmented control offered under the draft
+ * card's name input, once the parent has a conversation worth inheriting. */
+function InheritControl({
+  onChange,
+  value,
+}: {
+  onChange: (mode: InheritMode) => void;
+  value: InheritMode;
+}) {
+  const selectNone = useCallback(() => onChange("none"), [onChange]);
+  const selectBrief = useCallback(() => onChange("brief"), [onChange]);
+  const selectFull = useCallback(() => onChange("full"), [onChange]);
+
+  return (
+    <fieldset
+      aria-label="Inherit conversation"
+      className="m-0 flex items-center gap-1 border-0 p-0"
+    >
+      <InheritOption
+        label="无"
+        onSelect={selectNone}
+        selected={value === "none"}
+      />
+      <InheritOption
+        label="简报"
+        onSelect={selectBrief}
+        selected={value === "brief"}
+      />
+      <InheritOption
+        label="完整历史"
+        onSelect={selectFull}
+        selected={value === "full"}
+      />
+    </fieldset>
+  );
+}
+
+function InheritOption({
+  label,
+  onSelect,
+  selected,
+}: {
+  label: string;
+  onSelect: () => void;
+  selected: boolean;
+}) {
+  return (
+    <button
+      aria-pressed={selected}
+      className={cn(
+        "rounded-full border px-1.5 py-0.5 font-mono text-[10px] transition-colors",
+        selected
+          ? "border-bw-accent/45 text-bw-accent"
+          : "border-bw-hairline text-bw-muted hover:text-bw-ink"
+      )}
+      onClick={onSelect}
+      onMouseDown={preventBlur}
+      type="button"
+    >
+      {label}
+    </button>
   );
 }
 

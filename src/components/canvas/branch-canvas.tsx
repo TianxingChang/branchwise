@@ -14,6 +14,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { worktreeStatus } from "@/actions/repo";
 import BranchNodeCard, {
   type BranchNodeData,
+  branchLabel,
+  type InheritMode,
 } from "@/components/canvas/branch-node";
 import DeleteDialog, {
   type DeleteChoice,
@@ -206,7 +208,7 @@ function CanvasInner({ nodes, projectFolder, selectedId }: BranchCanvasProps) {
   );
 
   const commitDraft = useCallback(
-    async (name: string) => {
+    async (name: string, inheritMode: InheritMode) => {
       const parent = draftParentId ? byId.get(draftParentId) : null;
       if (!parent) {
         return;
@@ -214,7 +216,20 @@ function CanvasInner({ nodes, projectFolder, selectedId }: BranchCanvasProps) {
 
       setDraftParentId(null);
       const startPoint = parent.branch ?? parent.head;
-      const result = await createBranch(projectFolder, startPoint, name);
+      const inherit =
+        inheritMode === "none"
+          ? null
+          : {
+              mode: inheritMode,
+              parentLabel: branchLabel(parent),
+              parentWorktree: parent.id,
+            };
+      const result = await createBranch(
+        projectFolder,
+        startPoint,
+        name,
+        inherit
+      );
       if (!result.ok) {
         setError(result.error);
       }

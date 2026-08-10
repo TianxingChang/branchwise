@@ -8,7 +8,11 @@ import {
 } from "@/components/panel/agent-cards";
 import AgentConfigBar from "@/components/panel/agent-config-bar";
 import type { ConversationItem } from "@/lib/agent/fold";
-import { selectSession, useAgentStore } from "@/stores/agent-store";
+import {
+  type AgentInheritance,
+  selectSession,
+  useAgentStore,
+} from "@/stores/agent-store";
 import { useRepoStore } from "@/stores/repo-store";
 import type { AgentConfig, AgentUsage } from "@/types/agent";
 import type { DiffSummary } from "@/types/diff";
@@ -118,6 +122,10 @@ export default function AgentTab({
         parentBranch={parentBranch}
         projectFolder={projectFolder}
       />
+
+      {session.inherited ? (
+        <InheritedBadge inherited={session.inherited} />
+      ) : null}
 
       <div
         className="min-h-0 flex-1 space-y-3 overflow-y-auto px-4 py-4"
@@ -250,6 +258,28 @@ function DiffStrip({
         <span className="text-bw-removed">−{summary.deletions}</span>
       ) : null}
     </button>
+  );
+}
+
+const INHERIT_MODE_LABELS: Record<AgentInheritance["mode"], string> = {
+  brief: "简报",
+  full: "完整",
+};
+
+/** Last non-empty path segment — "/wt/feat-parent" reads as "feat-parent". */
+function pathTail(path: string): string {
+  const segments = path.split("/").filter((segment) => segment.length > 0);
+  return segments.at(-1) ?? path;
+}
+
+/** Quiet, permanent context line: this worktree's first turn didn't start
+ * from nothing — it inherited a conversation from another branch. */
+function InheritedBadge({ inherited }: { inherited: AgentInheritance }) {
+  return (
+    <p className="px-4 pt-2 text-[10.5px] text-bw-muted">
+      inherited from {pathTail(inherited.from)} (
+      {INHERIT_MODE_LABELS[inherited.mode]})
+    </p>
   );
 }
 
