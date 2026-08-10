@@ -20,6 +20,9 @@ export interface AgentInheritance {
   at: number;
   from: string;
   mode: "brief" | "full";
+  /** Absent only for a record persisted before this field existed — the
+   * badge falls back to a path-tail label in that case. */
+  parentLabel?: string;
 }
 
 export interface AgentSession {

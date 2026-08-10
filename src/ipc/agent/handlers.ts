@@ -73,6 +73,7 @@ export const getAgentConfig = os
           at: z.number(),
           from: z.string(),
           mode: z.enum(["brief", "full"]),
+          parentLabel: z.string().optional(),
         })
         .nullable(),
       turnActive: z.boolean(),

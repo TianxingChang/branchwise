@@ -441,6 +441,7 @@ async function prepareInheritanceOnce(input: {
         at: Date.now(),
         from: input.parentWorktree,
         mode: input.mode,
+        parentLabel: input.parentLabel,
       },
       sessionId: existingChild?.sessionId ?? null,
       threadId: existingChild?.threadId ?? null,

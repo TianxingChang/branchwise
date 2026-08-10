@@ -10,6 +10,13 @@ const worktreeAgentStateSchema = z.object({
       at: z.number(),
       from: z.string(),
       mode: z.enum(["brief", "full"]),
+      // The human-facing provenance label. The path in `from` is machine
+      // identity; a root parent's path tail is the repo folder, not its
+      // branch — optional (not a hard requirement of this object) so a
+      // registry entry written before this field existed still parses
+      // instead of taking the whole registry down with it; the badge falls
+      // back to a path-tail label for those pre-existing entries.
+      parentLabel: z.string().optional(),
     })
     .optional(),
   sessionId: z.string().nullable(),

@@ -209,7 +209,7 @@ describe("AgentTab", () => {
     expect(screen.getByText("≈ $0.37")).toBeInTheDocument();
   });
 
-  test("renders a badge for a session inherited from a parent", () => {
+  test("badge falls back to a path-tail label when parentLabel predates the field", () => {
     stubActions();
     seedSession({
       hasConversation: true,
@@ -227,5 +227,31 @@ describe("AgentTab", () => {
     expect(
       screen.getByText("inherited from feat-parent (简报)")
     ).toBeInTheDocument();
+  });
+
+  test("badge prefers the persisted parentLabel over the parent's path tail", () => {
+    stubActions();
+    // The common case: branching from the ROOT worktree, whose path is the
+    // repo folder ("/project"), not a branch name — path-tail alone would
+    // misname it "project" instead of "main".
+    seedSession({
+      hasConversation: true,
+      inherited: {
+        at: 1000,
+        from: "/project",
+        mode: "brief",
+        parentLabel: "main",
+      },
+    });
+    render(
+      <AgentTab
+        branchLabel="feat-a"
+        head="h1"
+        parentBranch={null}
+        projectFolder="/project"
+        worktreePath={WT}
+      />
+    );
+    expect(screen.getByText("inherited from main (简报)")).toBeInTheDocument();
   });
 });

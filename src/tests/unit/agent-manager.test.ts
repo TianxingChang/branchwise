@@ -834,7 +834,9 @@ describe("agent session manager", () => {
     expect(registry.worktrees[CHILD_WT]).toMatchObject({
       // Config follows the PARENT's entry so the fork lands on the same vendor.
       driverId: "claude-code",
-      inherited: { from: PARENT_WT, mode: "brief" },
+      // parentLabel round-trips too — the badge must never have to
+      // reverse-engineer a branch name from `from`, which is a worktree path.
+      inherited: { from: PARENT_WT, mode: "brief", parentLabel: "feat/parent" },
       tier: "accept-edits",
     });
 

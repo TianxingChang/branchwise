@@ -273,12 +273,15 @@ function pathTail(path: string): string {
 }
 
 /** Quiet, permanent context line: this worktree's first turn didn't start
- * from nothing — it inherited a conversation from another branch. */
+ * from nothing — it inherited a conversation from another branch. Prefers
+ * the persisted branch label; a root parent's worktree path is the repo
+ * folder, not "main", so the path-tail fallback is only for records
+ * written before `parentLabel` existed. */
 function InheritedBadge({ inherited }: { inherited: AgentInheritance }) {
+  const label = inherited.parentLabel ?? pathTail(inherited.from);
   return (
     <p className="px-4 pt-2 text-[10.5px] text-bw-muted">
-      inherited from {pathTail(inherited.from)} (
-      {INHERIT_MODE_LABELS[inherited.mode]})
+      inherited from {label} ({INHERIT_MODE_LABELS[inherited.mode]})
     </p>
   );
 }
