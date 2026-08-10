@@ -23,17 +23,19 @@ export function pathMappingNote(source: InheritSource): string {
  * Returns "" when the transcript has no user-message at all.
  */
 export function buildBrief(events: AgentEvent[], source: InheritSource): string {
-  // Extract first user-message
+  // Check for presence of user-message events; return "" if none exist
+  const hasUserMessage = events.some((e) => e.kind === "user-message");
+  if (!hasUserMessage) {
+    return "";
+  }
+
+  // Extract first user-message text
   let goal = "";
   for (const event of events) {
     if (event.kind === "user-message") {
       goal = event.text;
       break;
     }
-  }
-
-  if (!goal) {
-    return "";
   }
 
   // Extract assistant texts (accumulate from text-delta, reset on turn-done)
@@ -72,21 +74,37 @@ export function buildBrief(events: AgentEvent[], source: InheritSource): string 
   }
   const files = Array.from(filesSet);
 
-  // Extract trailing error events and permission-requests
-  const openItems: string[] = [];
-  let seenTurnDone = false;
+  // Build a Set of resolved permission requestIds
+  const resolvedRequestIds = new Set<string>();
+  for (const event of events) {
+    if (event.kind === "permission-resolved") {
+      resolvedRequestIds.add(event.requestId);
+    }
+  }
+
+  // Find the index of the last turn-done event
+  let lastTurnDoneIndex = -1;
   for (let i = events.length - 1; i >= 0; i--) {
-    const event = events[i];
-    if (event.kind === "turn-done") {
-      seenTurnDone = true;
-    } else if (
-      seenTurnDone &&
-      (event.kind === "error" || event.kind === "permission-request")
+    if (events[i]!.kind === "turn-done") {
+      lastTurnDoneIndex = i;
+      break;
+    }
+  }
+
+  // Extract trailing error events and unresolved permission-requests
+  const openItems: string[] = [];
+  for (let i = 0; i < events.length; i++) {
+    const event = events[i]!;
+    if (
+      event.kind === "error" &&
+      i > lastTurnDoneIndex
     ) {
-      if (event.kind === "error") {
-        openItems.unshift(event.message);
-      } else if (event.kind === "permission-request") {
-        openItems.unshift(`Permission request: ${event.toolName}`);
+      // Only errors after the last turn-done
+      openItems.push(event.message);
+    } else if (event.kind === "permission-request") {
+      // Include unresolved permissions anywhere in transcript
+      if (!resolvedRequestIds.has(event.requestId)) {
+        openItems.push(`Permission request: ${event.toolName}`);
       }
     }
   }

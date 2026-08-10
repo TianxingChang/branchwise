@@ -45,15 +45,15 @@ function transcript(): AgentEvent[] {
     { kind: "user-message", text: "Now cap retries at five." },
     { kind: "turn-started", turnId: "t2" },
     {
-      kind: "error",
-      message: "The agent stream failed.",
-    },
-    {
       costUsd: null,
       kind: "turn-done",
       stopReason: "error",
       turnId: "t2",
       usage: null,
+    },
+    {
+      kind: "error",
+      message: "The agent stream failed.",
     },
   ];
 }
@@ -73,6 +73,102 @@ describe("buildBrief", () => {
     expect(
       buildBrief([{ kind: "turn-started", turnId: "t1" }], SOURCE)
     ).toBe("");
+  });
+
+  test("an approved permission never appears in 未决事项", () => {
+    // Regression: permission-resolved with approved:true should not appear in open items
+    const events: AgentEvent[] = [
+      { kind: "user-message", text: "Run tests." },
+      { kind: "turn-started", turnId: "t1" },
+      {
+        kind: "permission-request",
+        requestId: "r1",
+        toolName: "Bash",
+        detail: "npm test",
+      },
+      {
+        kind: "permission-resolved",
+        requestId: "r1",
+        approved: true,
+      },
+      {
+        costUsd: 0.1,
+        kind: "turn-done",
+        stopReason: "completed",
+        turnId: "t1",
+        usage: null,
+      },
+    ];
+    const brief = buildBrief(events, SOURCE);
+    expect(brief).not.toContain("Bash");
+    expect(brief).not.toContain("未决事项");
+  });
+
+  test("error before successful turn-done does not appear, but error after last turn-done does", () => {
+    // Regression: errors only count if they come after the last turn-done
+    const events: AgentEvent[] = [
+      { kind: "user-message", text: "Do something." },
+      { kind: "turn-started", turnId: "t1" },
+      {
+        kind: "error",
+        message: "Error in turn 1",
+      },
+      {
+        costUsd: 0.1,
+        kind: "turn-done",
+        stopReason: "error",
+        turnId: "t1",
+        usage: null,
+      },
+      { kind: "user-message", text: "Try again." },
+      { kind: "turn-started", turnId: "t2" },
+      {
+        kind: "text-delta",
+        text: "Success.",
+      },
+      {
+        costUsd: 0.1,
+        kind: "turn-done",
+        stopReason: "completed",
+        turnId: "t2",
+        usage: null,
+      },
+      {
+        kind: "error",
+        message: "Error after final turn",
+      },
+    ];
+    const brief = buildBrief(events, SOURCE);
+    expect(brief).not.toContain("Error in turn 1");
+    expect(brief).toContain("Error after final turn");
+  });
+
+  test("an unresolved permission-request anywhere yields a 未决事项 entry", () => {
+    // Regression: unresolved permission-request should appear regardless of position
+    const events: AgentEvent[] = [
+      { kind: "user-message", text: "Do work." },
+      { kind: "turn-started", turnId: "t1" },
+      {
+        kind: "permission-request",
+        requestId: "r1",
+        toolName: "Read",
+        detail: "/some/file",
+      },
+      {
+        kind: "text-delta",
+        text: "Working.",
+      },
+      {
+        costUsd: 0.1,
+        kind: "turn-done",
+        stopReason: "completed",
+        turnId: "t1",
+        usage: null,
+      },
+    ];
+    const brief = buildBrief(events, SOURCE);
+    expect(brief).toContain("未决事项");
+    expect(brief).toContain("Read");
   });
 });
 
