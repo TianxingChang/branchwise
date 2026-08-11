@@ -380,3 +380,66 @@ Tests (puppet-driven, fake timers, tmp baseDir as today):
 
 **Commit** `"Close increment 2: gates, smoke, atlas"` (atlas edit may ride in
 this commit; smoke results go to the ledger, not the repo).
+
+---
+
+## Increment-2 final-review amendments (binding, adjudicated 2026-08-10)
+
+The whole-increment review found two Critical and three Important defects, all
+plan-level (the tasks implemented the plan faithfully). These override the
+task sections above.
+
+**A1 (Critical) — `inject` must never go to a driver that drops it.** Task 3's
+`else` branch hands `inject` to whatever driver the child carries, but only the
+codex adapter consumes it (`src/ipc/claude/adapter.ts` reads `resume` only), so
+a claude-code child with no fork target inherits *nothing* while the registry
+and badge claim `mode:"full"`. Reachable without exotic timing: parent ran on
+codex (so no `sessionId`), user switches the child to claude-code, or the
+parent's entry is missing. Required: in `send()`, when `mode === "full"` and
+the fork precondition fails **and the child's driver is claude-code**, degrade
+to a prompt prefix — `note` + the history rendered as plain text
+(`role: text` lines) + `\n\n---\n\n` + the user's text — instead of setting
+`inject`. `inject` is set only for codex. Test: a full-mode pending with no
+`parentSessionId` on a claude-code child produces a prompt containing the
+history text and NO `inject` field.
+
+**A2 (Critical) — the brief tier must not leak parent-absolute paths.** Only
+`collectTouchedFiles` rewrote paths; 任务目标/近期结论/未决事项 copy model prose
+verbatim, and assistant text naming absolute paths is the common case. The
+default tier therefore hands a child absolute parent paths with no mapping note
+— the A2 wrong-branch hazard via context, which spec §5 says this tier avoids
+structurally. Required: rewrite the **assembled** brief, not one section —
+strip every occurrence of `${parentWorktree}/` from the final string before
+returning. Test: a transcript with parent-absolute paths in the goal, in an
+assistant text and in an error message yields a brief where
+`expect(brief).not.toContain(parentWorktree)`.
+
+**A3 (Important) — the context note must be imperative and must reach the
+fork.** `pathMappingNote` returns a bare parenthetical (two facts, no
+directive) and is consumed only on the codex/inject branch. The claude fork —
+which carries the parent's entire session verbatim while running with the
+child's cwd — is the tier that needs it most. Required: `pathMappingNote`
+returns the spec's wording ("The working directory changed from <parent> to
+<child>. Map any old absolute paths onto the new root."), and the fork branch
+sets `prompt = \`${pending.note}\n\n---\n\n${trimmed}\``.
+
+**A4 (Important) — the creation control must not depend on a mounted Agent
+tab.** `BranchNameEditor` gates on the agent store's `hasConversation`, which
+only populates when `AgentTab` mounted this run — so after a relaunch (or with
+the panel on another tab) the inheritance control silently disappears on the
+feature's primary entry path. Required: `branch-canvas.tsx`'s existing
+per-draft effect also fetches `getAgentConfig(parent.id)` and passes
+`parentHasConversation` down as a prop; `branch-node.tsx` uses the prop instead
+of reading the store. Test: with the store empty, a draft whose parent has a
+conversation on disk still renders the control.
+
+**A5 (Important) — file-scoped lint on `src/tests/unit/agent-inherit.test.ts`.**
+Four auto-fixable errors (`useSortedKeys` ×3, one format) that a post-merge main
+checkout will fail. Required: `npx ultracite fix` that path; keep assertions
+identical.
+
+Ledgered as known gaps (not fixed this increment): stale pending/transcript
+survive a worktree delete+recreate at the same path; a deleted parent session
+on the fork tier fails visibly but loses the inheritance unrecoverably; a
+failing codex inject loses the payload (clear already ran); the full tier is
+uncapped in size.
