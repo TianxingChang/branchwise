@@ -26,6 +26,11 @@ export type BranchNodeData = {
   onDelete: () => void;
   onStartChild: () => void;
   parentDirtyCount: number | null;
+  /** Whether the draft's parent has a conversation worth inheriting — fetched
+   * by branch-canvas via the actions layer, not read from the agent store
+   * (the store only populates once AgentTab has mounted for that worktree
+   * this run; see final-review A4). */
+  parentHasConversation: boolean;
   projectFolder: string;
 };
 
@@ -51,6 +56,9 @@ function BranchNodeCard({ data }: NodeProps & { data: BranchNodeData }) {
           onCancel={data.onCancelDraft}
           onCommit={data.isRenaming ? data.onCommitRename : data.onCommitDraft}
           parentDirtyCount={data.isDraft ? data.parentDirtyCount : null}
+          parentHasConversation={
+            data.isDraft ? data.parentHasConversation : false
+          }
           parentWorktreePath={data.isDraft ? node.parentId : null}
         />
       </div>
@@ -206,12 +214,14 @@ function BranchNameEditor({
   onCancel,
   onCommit,
   parentDirtyCount,
+  parentHasConversation,
   parentWorktreePath,
 }: {
   initialValue: string;
   onCancel: () => void;
   onCommit: (name: string, inherit: InheritMode) => void;
   parentDirtyCount: number | null;
+  parentHasConversation: boolean;
   parentWorktreePath: string | null;
 }) {
   const [value, setValue] = useState(initialValue);
@@ -220,11 +230,9 @@ function BranchNameEditor({
 
   // Offering to inherit only makes sense once the parent has something to
   // hand down — an empty conversation would seed the child with nothing.
-  const parentHasConversation = useAgentStore((state) =>
-    parentWorktreePath
-      ? selectSession(state, parentWorktreePath).hasConversation
-      : false
-  );
+  // parentHasConversation arrives as a prop (final-review A4): the agent
+  // store only populates a worktree's session once AgentTab has mounted for
+  // it this run, which made this control disappear after a relaunch.
   const showInherit = parentWorktreePath !== null && parentHasConversation;
 
   useEffect(() => {

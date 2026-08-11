@@ -7,10 +7,14 @@ export interface InheritSource {
 }
 
 /**
- * The context note both tiers lead with when paths may be stale.
+ * The context note both tiers lead with when paths may be stale. Imperative
+ * on purpose (final-review A3): a bare parenthetical naming both roots reads
+ * as trivia, not an instruction, and the claude fork branch — which carries
+ * the parent's entire session verbatim while running from the child's cwd —
+ * needs the directive, not just the facts.
  */
 export function pathMappingNote(source: InheritSource): string {
-  return `(Parent worktree: ${source.parentWorktree}, Child worktree: ${source.childWorktree})`;
+  return `The working directory changed from ${source.parentWorktree} to ${source.childWorktree}. Map any old absolute paths onto the new root.`;
 }
 
 function extractGoal(events: AgentEvent[]): string {
@@ -149,7 +153,15 @@ export function buildBrief(
     sections.push("");
   }
 
-  return sections.join("\n").trim();
+  const assembled = sections.join("\n").trim();
+  // Final-review A2: only collectTouchedFiles rewrote paths, but 任务目标/
+  // 近期结论/未决事项 copy model prose verbatim, and that prose naming an
+  // absolute parent path is the common case — the default tier must not
+  // hand a child parent-absolute paths with no mapping note (spec §5's
+  // structural avoidance of the wrong-branch hazard depends on it). Strip
+  // every occurrence from the fully assembled string, not just the files
+  // section.
+  return assembled.replaceAll(`${source.parentWorktree}/`, "");
 }
 
 /**

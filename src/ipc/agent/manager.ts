@@ -460,6 +460,80 @@ async function prepareInheritanceOnce(input: {
   return { ok: true };
 }
 
+/**
+ * Plain-text fallback for a full-tier inheritance whose fork precondition
+ * failed on a claude-code child (final-review A1). `role: text` lines the
+ * model reads like any other turn — `inject` only reaches codex's
+ * thread/inject_items; the claude adapter reads `resume` only and silently
+ * drops it.
+ */
+function renderHistoryAsPromptText(
+  history: { role: "assistant" | "user"; text: string }[]
+): string {
+  return history
+    .map((message) => `${message.role}: ${message.text}`)
+    .join("\n\n");
+}
+
+/**
+ * Reshapes a fresh turn's prompt/resume/inject from a pending inheritance
+ * (consume-on-first-send) — pulled out of `send()` so its own branching
+ * (final-review A1 + A3) does not push that function over the cognitive
+ * complexity budget. `driverId` is the CHILD's own config, already resolved
+ * by the caller; `defaultResume` is what an uninherited turn would use.
+ */
+function applyPendingInheritance(
+  pending: PendingInheritance | null,
+  trimmed: string,
+  driverId: AgentDriverId,
+  defaultResume: StartTurnInput["resume"]
+): {
+  prompt: string;
+  resume: StartTurnInput["resume"];
+  inject: StartTurnInput["inject"];
+} {
+  if (pending?.mode === "brief") {
+    return {
+      inject: undefined,
+      prompt: `${pending.brief}\n\n---\n\n${trimmed}`,
+      resume: defaultResume,
+    };
+  }
+  if (pending?.mode !== "full") {
+    return { inject: undefined, prompt: trimmed, resume: defaultResume };
+  }
+  if (driverId === "claude-code" && pending.parentSessionId) {
+    // A3: the fork carries the parent's entire session verbatim but runs
+    // from the child's cwd, so the mapping note has to reach it as a prompt
+    // prefix — nothing else on this branch ever surfaces it to the model.
+    return {
+      inject: undefined,
+      prompt: `${pending.note}\n\n---\n\n${trimmed}`,
+      resume: {
+        fork: true,
+        sessionId: pending.parentSessionId,
+        threadId: null,
+      },
+    };
+  }
+  if (driverId === "claude-code") {
+    // A1: no fork target (parent ran codex, its registry entry is missing,
+    // or its session id was never announced) — `inject` is silently ignored
+    // by the claude adapter, so degrade to a plain prompt prefix instead of
+    // claiming `mode: "full"` while delivering nothing.
+    return {
+      inject: undefined,
+      prompt: `${pending.note}\n\n${renderHistoryAsPromptText(pending.history ?? [])}\n\n---\n\n${trimmed}`,
+      resume: defaultResume,
+    };
+  }
+  return {
+    inject: [{ role: "user", text: pending.note }, ...(pending.history ?? [])],
+    prompt: trimmed,
+    resume: defaultResume,
+  };
+}
+
 export async function send(
   worktreePath: string,
   text: string
@@ -500,28 +574,12 @@ export async function send(
     // Consume-on-first-send: a pending inheritance (prepareInheritance)
     // reshapes this turn's prompt/resume/inject exactly once.
     pending = await readPendingInheritance(dir, worktreePath);
-    let prompt = trimmed;
-    let resume: StartTurnInput["resume"] = {
-      sessionId: entry?.sessionId ?? null,
-      threadId: entry?.threadId ?? null,
-    };
-    let inject: StartTurnInput["inject"];
-    if (pending?.mode === "brief") {
-      prompt = `${pending.brief}\n\n---\n\n${trimmed}`;
-    } else if (pending?.mode === "full") {
-      if (entry?.driverId === "claude-code" && pending.parentSessionId) {
-        resume = {
-          fork: true,
-          sessionId: pending.parentSessionId,
-          threadId: null,
-        };
-      } else {
-        inject = [
-          { role: "user", text: pending.note },
-          ...(pending.history ?? []),
-        ];
-      }
-    }
+    const { prompt, resume, inject } = applyPendingInheritance(
+      pending,
+      trimmed,
+      config.driverId,
+      { sessionId: entry?.sessionId ?? null, threadId: entry?.threadId ?? null }
+    );
 
     const driver = await driverFor(config.driverId);
     handle = driver.startTurn({

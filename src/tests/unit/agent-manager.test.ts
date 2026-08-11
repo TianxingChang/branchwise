@@ -850,7 +850,10 @@ describe("agent session manager", () => {
     puppet.end();
   });
 
-  test("prepare(full) with a parent session forks claude-code's resume and leaves the prompt untouched", async () => {
+  // --- Final-review A3: the fork carries the parent's entire session
+  // verbatim but runs from the child's cwd, so the mapping note must reach
+  // it as a prompt prefix — it used to be dropped entirely on this branch.
+  test("prepare(full) with a parent session forks claude-code's resume and prefixes the mapping note", async () => {
     const puppet = puppetDriver();
     configureManager({
       baseDir: base,
@@ -899,9 +902,94 @@ describe("agent session manager", () => {
       sessionId: "parent-s1",
       threadId: null,
     });
-    expect(puppet.input()?.prompt).toBe("Please continue.");
+    const prompt = puppet.input()?.prompt ?? "";
+    expect(prompt.startsWith("The working directory changed from")).toBe(true);
+    expect(prompt).toContain(PARENT_WT);
+    expect(prompt).toContain(CHILD_WT);
+    expect(prompt.endsWith("\n\n---\n\nPlease continue.")).toBe(true);
     // The fork branch carries history through cc's own session, not inject.
     expect(puppet.input()?.inject).toBeUndefined();
+
+    puppet.feed({
+      costUsd: null,
+      kind: "turn-done",
+      stopReason: "completed",
+      turnId: "c1",
+      usage: null,
+    });
+    puppet.end();
+  });
+
+  // --- Final-review A1 (Critical): `inject` only reaches a driver that
+  // consumes it (codex's thread/inject_items) — the claude adapter reads
+  // `resume` only and silently drops `inject`. Reachable without exotic
+  // timing whenever a full-tier pending has no parentSessionId on a
+  // claude-code child (parent ran codex, its entry is missing, or — as
+  // here — its session id was simply never announced before the child
+  // inherits): prepareInheritance still copies the parent's driverId
+  // ("claude-code") onto the child, so the fork precondition
+  // (`entry.driverId === "claude-code" && pending.parentSessionId`) fails
+  // on the sessionId half only. Before the fix this fell through to
+  // `inject`, which the claude adapter ignores — the badge would claim
+  // `mode: "full"` while the child inherited nothing.
+  test("full mode with no parentSessionId on a claude-code child degrades to a prompt prefix, never inject", async () => {
+    const puppet = puppetDriver();
+    configureManager({
+      baseDir: base,
+      drivers: { "claude-code": puppet.driver },
+    });
+    const PARENT_WT = "/wt/feat-parent-nosession";
+    const CHILD_WT = "/wt/feat-child-nosession";
+
+    await setConfig(PARENT_WT, {
+      driverId: "claude-code",
+      tier: "accept-edits",
+    });
+    await send(PARENT_WT, "Add retry logic to the sync engine.");
+    puppet.feed({ kind: "turn-started", turnId: "p1" });
+    puppet.feed({ kind: "text-delta", text: "Added retries." });
+    puppet.feed({
+      costUsd: 0.1,
+      kind: "turn-done",
+      stopReason: "completed",
+      turnId: "p1",
+      usage: null,
+    });
+    puppet.end();
+    // No onSessionId call above: the parent's registry entry keeps
+    // sessionId: null, so prepareInheritance writes a full-mode pending with
+    // no parentSessionId even though the parent's driver is claude-code.
+    await settleUntil(async () =>
+      (await readHistory(PARENT_WT)).some((e) => e.kind === "turn-done")
+    );
+    expect(
+      (await loadRegistry(base)).worktrees[PARENT_WT]?.sessionId
+    ).toBeNull();
+
+    const prepared = await prepareInheritance({
+      childWorktree: CHILD_WT,
+      mode: "full",
+      parentLabel: "feat/parent-nosession",
+      parentWorktree: PARENT_WT,
+    });
+    expect(prepared.ok).toBe(true);
+    // Config follows the parent, so the child is claude-code too — the fork
+    // precondition's driver half is satisfied; only sessionId is missing.
+    expect((await loadRegistry(base)).worktrees[CHILD_WT]?.driverId).toBe(
+      "claude-code"
+    );
+
+    expect((await send(CHILD_WT, "Please continue.")).accepted).toBe(true);
+    const input = puppet.input();
+    expect(input?.inject).toBeUndefined();
+    // The fork precondition never engaged: no `fork` key at all, sessionId
+    // and threadId are the CHILD's own (both still null, its first turn).
+    expect(input?.resume).toEqual({ sessionId: null, threadId: null });
+    const prompt = input?.prompt ?? "";
+    expect(prompt.startsWith("The working directory changed from")).toBe(true);
+    expect(prompt).toContain("user: Add retry logic to the sync engine.");
+    expect(prompt).toContain("assistant: Added retries.");
+    expect(prompt.endsWith("\n\n---\n\nPlease continue.")).toBe(true);
 
     puppet.feed({
       costUsd: null,

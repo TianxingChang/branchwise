@@ -11,6 +11,7 @@ import {
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { getAgentConfig } from "@/actions/agent";
 import { worktreeStatus } from "@/actions/repo";
 import BranchNodeCard, {
   type BranchNodeData,
@@ -74,6 +75,7 @@ function CanvasInner({ nodes, projectFolder, selectedId }: BranchCanvasProps) {
   const [renamingId, setRenamingId] = useState<string | null>(null);
   const [draftParentId, setDraftParentId] = useState<string | null>(null);
   const [parentDirtyCount, setParentDirtyCount] = useState<number | null>(null);
+  const [parentHasConversation, setParentHasConversation] = useState(false);
   const [pendingDelete, setPendingDelete] = useState<CanvasNode | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -91,10 +93,16 @@ function CanvasInner({ nodes, projectFolder, selectedId }: BranchCanvasProps) {
   );
 
   // A dirty parent does not block branching, but the child will start from the
-  // parent's last commit — worth saying before the name is even typed.
+  // parent's last commit — worth saying before the name is even typed. The
+  // same effect also resolves whether the parent has a conversation worth
+  // inheriting (final-review A4): reading straight from the actions layer,
+  // not the agent store, means the inherit control still renders after a
+  // relaunch — the store only populates a worktree's session once AgentTab
+  // has mounted for it this run.
   useEffect(() => {
     if (draftParentId === null) {
       setParentDirtyCount(null);
+      setParentHasConversation(false);
       return;
     }
 
@@ -113,6 +121,14 @@ function CanvasInner({ nodes, projectFolder, selectedId }: BranchCanvasProps) {
       .then((status) => {
         if (active) {
           setParentDirtyCount(status.dirtyCount);
+        }
+      })
+      .catch(() => undefined);
+
+    getAgentConfig(parent.id)
+      .then((config) => {
+        if (active) {
+          setParentHasConversation(config.hasConversation);
         }
       })
       .catch(() => undefined);
@@ -315,6 +331,7 @@ function CanvasInner({ nodes, projectFolder, selectedId }: BranchCanvasProps) {
           onDelete: () => setPendingDelete(node),
           onStartChild: () => setDraftParentId(node.id),
           parentDirtyCount,
+          parentHasConversation,
           projectFolder,
         },
         draggable: false,
@@ -331,6 +348,7 @@ function CanvasInner({ nodes, projectFolder, selectedId }: BranchCanvasProps) {
       commitRename,
       displayNodes,
       parentDirtyCount,
+      parentHasConversation,
       positions,
       projectFolder,
       renamingId,
