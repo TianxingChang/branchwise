@@ -272,17 +272,6 @@
     border-top: 1px solid var(--bw-hairline);
   }
 
-  /* React Flow's attribution stays (removing it needs a Pro licence) but is
-     toned down to sit quietly against the canvas. */
-  .branchwise-canvas .react-flow__attribution {
-    font-size: 9px;
-    background: transparent;
-  }
-
-  .branchwise-canvas .react-flow__attribution a {
-    color: var(--bw-edge);
-  }
-
   .branchwise-canvas .react-flow__edge-path {
     stroke: var(--bw-edge);
     stroke-width: 1.25;

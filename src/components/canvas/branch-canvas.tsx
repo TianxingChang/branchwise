@@ -420,6 +420,10 @@ function CanvasInner({ nodes, projectFolder, selectedId }: BranchCanvasProps) {
         onPaneClick={handlePaneClick}
         onReconnect={handleReconnect}
         panOnScroll
+        // React Flow is MIT, so this is permitted, but xyflow asks that the
+        // flag be paired with a Pro subscription. Set on the user's call
+        // (2026-08-13), reversing the earlier decision to keep the badge.
+        proOptions={{ hideAttribution: true }}
         selectionOnDrag={false}
         zoomOnDoubleClick={false}
       >
