@@ -53,6 +53,22 @@
   --bw-running: #2f6bff;
   --bw-done: #3e9e63;
   --bw-removed: #c05b4d;
+
+  /* The window frame. Opaque by default: only macOS puts a blur layer behind
+     the page, so on every other platform a translucent frame would show the
+     window's backing colour and nothing more. */
+  --bw-chrome: var(--bw-canvas);
+  --bw-tab-hover: var(--bw-subtle);
+  --bw-frame-edge: var(--bw-hairline);
+}
+
+/* Set by AppShell once the main process confirms darwin. The tint is the
+   paper canvas at low alpha — enough for tab labels to stay legible over a
+   busy wallpaper, sheer enough that the vibrancy still reads as glass. */
+:root[data-vibrancy="on"] {
+  --bw-chrome: rgb(245 245 243 / 22%);
+  --bw-tab-hover: rgb(255 255 255 / 40%);
+  --bw-frame-edge: rgb(255 255 255 / 60%);
 }
 
 .dark {
@@ -130,6 +146,9 @@
   --radius-2xl: calc(var(--radius) + 8px);
   --radius-3xl: calc(var(--radius) + 12px);
   --radius-4xl: calc(var(--radius) + 16px);
+  --color-bw-chrome: var(--bw-chrome);
+  --color-bw-tab-hover: var(--bw-tab-hover);
+  --color-bw-frame-edge: var(--bw-frame-edge);
   --color-bw-canvas: var(--bw-canvas);
   --color-bw-surface: var(--bw-surface);
   --color-bw-subtle: var(--bw-subtle);
@@ -149,7 +168,9 @@
     @apply border-border outline-ring/50;
   }
   body {
-    @apply bg-background text-foreground overflow-hidden font-sans antialiased;
+    /* Deliberately unpainted: on macOS this is the hole the window's vibrancy
+       layer shows through. AppShell paints the frame over it. */
+    @apply bg-transparent text-foreground overflow-hidden font-sans antialiased;
   }
   html {
     @apply font-sans;

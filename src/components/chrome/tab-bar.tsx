@@ -1,10 +1,11 @@
 import { Plus, X } from "lucide-react";
 import { useCallback } from "react";
+import { tabStripLeftInset, WINDOW_CHROME } from "@/constants";
 import { useIsMacOS } from "@/hooks/use-platform";
 import { type ProjectTab, useTabsStore } from "@/stores/tabs-store";
 import { cn } from "@/utils/tailwind";
 
-const MACOS_TRAFFIC_LIGHT_INSET = 84;
+const MACOS_TRAFFIC_LIGHT_INSET = tabStripLeftInset();
 
 export default function TabBar() {
   const isMacOS = useIsMacOS();
@@ -18,8 +19,11 @@ export default function TabBar() {
 
   return (
     <div
-      className="draglayer flex h-10 shrink-0 items-center gap-1 border-bw-hairline border-b bg-bw-canvas pr-3"
-      style={{ paddingLeft: isMacOS ? MACOS_TRAFFIC_LIGHT_INSET : 12 }}
+      className="draglayer flex shrink-0 items-center gap-1 pr-1"
+      style={{
+        height: WINDOW_CHROME.HEADER_HEIGHT,
+        paddingLeft: isMacOS ? MACOS_TRAFFIC_LIGHT_INSET : 12,
+      }}
     >
       <div className="flex min-w-0 flex-1 items-center gap-1 overflow-x-auto">
         {tabs.map((tab) => (
@@ -27,7 +31,7 @@ export default function TabBar() {
         ))}
         <button
           aria-label="New tab"
-          className="no-drag flex size-6 shrink-0 items-center justify-center rounded-md text-bw-muted transition-colors hover:bg-bw-subtle hover:text-bw-ink focus-visible:outline-2 focus-visible:outline-bw-accent"
+          className="no-drag flex size-6 shrink-0 items-center justify-center rounded-md text-bw-muted transition-colors hover:bg-bw-tab-hover hover:text-bw-ink focus-visible:outline-2 focus-visible:outline-bw-accent"
           onClick={handleNewTab}
           title="New tab"
           type="button"
@@ -57,9 +61,11 @@ function TabItem({ isActive, tab }: { isActive: boolean; tab: ProjectTab }) {
     <div
       className={cn(
         "no-drag group flex h-7 min-w-0 max-w-52 shrink-0 items-center gap-1.5 rounded-lg border pr-1 pl-2.5 transition-colors",
+        // Opaque while active so it reads as the page's own card rather than
+        // another pane of the glass; the inactive ones stay part of the frame.
         isActive
-          ? "border-bw-hairline bg-bw-surface shadow-[0_1px_2px_rgba(0,0,0,0.04)]"
-          : "border-transparent hover:bg-bw-subtle"
+          ? "border-bw-frame-edge bg-bw-surface shadow-[0_1px_2px_rgba(0,0,0,0.06)]"
+          : "border-transparent hover:bg-bw-tab-hover"
       )}
     >
       <button

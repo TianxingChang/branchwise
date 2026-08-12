@@ -1,5 +1,5 @@
 import path from "node:path";
-import { app, BrowserWindow } from "electron";
+import { app, BrowserWindow, nativeTheme } from "electron";
 import { ipcMain } from "electron/main";
 import {
   installExtension,
@@ -7,7 +7,12 @@ import {
 } from "electron-devtools-installer";
 import { UpdateSourceType, updateElectronApp } from "update-electron-app";
 import { ipcContext } from "@/ipc/context";
-import { IPC_CHANNELS, inDevelopment } from "./constants";
+import {
+  IPC_CHANNELS,
+  inDevelopment,
+  trafficLightY,
+  WINDOW_CHROME,
+} from "./constants";
 import { reapStrays } from "./ipc/agent/pids";
 import { stopAllWatching } from "./ipc/files/watcher";
 import { killAll } from "./ipc/terminal/manager";
@@ -20,15 +25,27 @@ const UPDATE_REPO = "";
 function createWindow() {
   const basePath = getBasePath();
   const preload = path.join(basePath, "preload.js");
+  const isMacOS = process.platform === "darwin";
   const mainWindow = new BrowserWindow({
-    backgroundColor: "#f5f5f3",
+    // macOS blurs the desktop behind the window with an NSVisualEffectView,
+    // but only through pixels the page leaves unpainted — an opaque backing
+    // colour would hide the effect entirely. Everywhere else there is no such
+    // layer, so the window keeps its solid canvas.
+    backgroundColor: isMacOS ? "#00000000" : "#f5f5f3",
     height: 820,
     minHeight: 620,
     minWidth: 940,
-    titleBarStyle: process.platform === "darwin" ? "hiddenInset" : "hidden",
-    // Centres the traffic lights in the 40px tab strip.
-    trafficLightPosition:
-      process.platform === "darwin" ? { x: 14, y: 14 } : undefined,
+    titleBarStyle: isMacOS ? "hiddenInset" : "hidden",
+    // Centres the traffic lights on the tab strip, which now floats inside
+    // the frame's gutter rather than sitting flush against the window edge.
+    trafficLightPosition: isMacOS
+      ? { x: WINDOW_CHROME.TRAFFIC_LIGHT_X, y: trafficLightY() }
+      : undefined,
+    vibrancy: isMacOS ? "under-window" : undefined,
+    // Without this the material drops to its flat inactive state whenever the
+    // window loses focus, which reads as the glass breaking rather than as
+    // the window resting.
+    visualEffectState: isMacOS ? "active" : undefined,
     webPreferences: {
       contextIsolation: true,
       devTools: inDevelopment,
@@ -107,6 +124,10 @@ app.whenReady().then(() => {
     // loads from disk fast enough to win that race — the port is then dropped
     // and every IPC call hangs forever. Only reproducible outside dev.
     setupORPC();
+    // The renderer pins this too, but not until React mounts. The vibrancy
+    // material picks its appearance the moment the window opens, so a dark
+    // system setting would frost the chrome dark for those first frames.
+    nativeTheme.themeSource = "light";
     createWindow();
     checkForUpdates();
     // Not awaited: devtools are a convenience, not a startup dependency.

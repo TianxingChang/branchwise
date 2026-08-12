@@ -3,6 +3,7 @@ import { projectExists } from "@/actions/project";
 import TabBar from "@/components/chrome/tab-bar";
 import OpenFolder from "@/components/workspace/open-folder";
 import ProjectWorkspace from "@/components/workspace/project-workspace";
+import { useIsMacOS } from "@/hooks/use-platform";
 import {
   ensureInitialTab,
   type ProjectTab,
@@ -10,6 +11,7 @@ import {
 } from "@/stores/tabs-store";
 
 export default function AppShell() {
+  const isMacOS = useIsMacOS();
   const tabs = useTabsStore((state) => state.tabs);
   const activeTabId = useTabsStore((state) => state.activeTabId);
   const pruneMissing = useTabsStore((state) => state.pruneMissing);
@@ -17,6 +19,21 @@ export default function AppShell() {
   useEffect(() => {
     ensureInitialTab();
   }, []);
+
+  // Only macOS has a blur layer behind the page, so only there may the frame
+  // go translucent. The flag rides on the root element because the colours it
+  // switches are custom properties, not classes on any one component.
+  useEffect(() => {
+    if (!isMacOS) {
+      return;
+    }
+
+    document.documentElement.dataset.vibrancy = "on";
+
+    return () => {
+      document.documentElement.removeAttribute("data-vibrancy");
+    };
+  }, [isMacOS]);
 
   // Restored tabs point at folders that may have been moved or deleted since
   // the last run; drop those rather than showing a workspace that can't save.
@@ -53,10 +70,15 @@ export default function AppShell() {
 
   const activeTab = tabs.find((tab) => tab.id === activeTabId) ?? tabs[0];
 
+  // No top padding: the tab strip is the header band and centres itself in
+  // it. Padding above would push the tabs down without matching room below.
   return (
-    <div className="flex h-screen w-screen flex-col overflow-hidden bg-bw-canvas">
+    <div className="flex h-screen w-screen flex-col overflow-hidden bg-bw-chrome px-1.5 pb-1.5">
       <TabBar />
-      <main className="min-h-0 flex-1">
+      {/* The workspace is a card floating in the frame, the way a browser's
+          page sits inside its chrome. `overflow-hidden` is what makes the
+          rounding real — the canvas and panel both paint to their own edges. */}
+      <main className="min-h-0 flex-1 overflow-hidden rounded-xl border border-bw-frame-edge bg-bw-canvas shadow-[0_1px_3px_rgba(0,0,0,0.06),0_8px_24px_rgba(0,0,0,0.08)]">
         <TabSurface tab={activeTab} />
       </main>
     </div>

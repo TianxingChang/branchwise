@@ -133,9 +133,6 @@ export default function ProjectWorkspace({ project }: { project: ProjectRef }) {
           count={nodes.filter((node) => node.prunable).length}
           folder={project.path}
         />
-        <p className="pointer-events-none font-mono text-[10.5px] text-bw-edge">
-          {state.repo?.root ?? project.path}
-        </p>
       </div>
     </div>
   );
