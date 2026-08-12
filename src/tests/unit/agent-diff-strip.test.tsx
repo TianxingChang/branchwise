@@ -91,13 +91,15 @@ describe("the agent tab's diff strip", () => {
     expect(screen.getByText(MINUS_ONE)).toBeInTheDocument();
   });
 
-  test("clicking the strip opens the diff tab full", async () => {
+  test("clicking the strip opens the diff tab without resizing the panel", async () => {
     renderTab();
+    const before = useRepoStore.getState().projects[FOLDER].doc?.panel;
 
     fireEvent.click(await screen.findByText(TWO_FILES));
 
     const { doc } = useRepoStore.getState().projects[FOLDER];
     expect(doc?.panel.tab).toBe("diff");
-    expect(doc?.panel.posture).toBe("full");
+    expect(doc?.panel.posture).toBe(before?.posture);
+    expect(doc?.panel.width).toBe(before?.width);
   });
 });
