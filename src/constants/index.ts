@@ -21,7 +21,13 @@ export const ENVIRONMENT_VARIABLES = {
  * about the gutter — change the gutter here or they stop lining up.
  */
 export const WINDOW_CHROME = {
-  /** Inset of the frame from the window's left, right and bottom edges. */
+  /**
+   * Inset of the frame from the window's left, right and bottom edges.
+   * PANEL_GUTTER is held equal to this on the user's call (2026-08-13): the
+   * window framing the workspace card and the workspace card framing the
+   * panel are the same gesture one level apart, and two different insets read
+   * as a mistake. This is the one that stayed put; the panel came down to it.
+   */
   GUTTER: 6,
   /**
    * The whole header band, window top down to the workspace card. A browser's

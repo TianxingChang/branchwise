@@ -1,4 +1,11 @@
-import { ArrowDown, ArrowUp, FileDiff, PanelRightOpen, X } from "lucide-react";
+import {
+  ArrowDown,
+  ArrowUp,
+  ChevronDown,
+  FileDiff,
+  PanelRightOpen,
+  X,
+} from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { worktreeStatus } from "@/actions/repo";
 import { branchLabel } from "@/components/canvas/branch-node";
@@ -41,8 +48,10 @@ const TAB_LABELS: Record<PanelTab, string> = {
  * trail). Postures differ in geometry only: peek reserves no canvas space,
  * split makes the canvas yield its width, full leaves just the rail strip.
  */
+// The inset must stay in step with PANEL_GUTTER, which the geometry below is
+// measured with — and with the window's own gutter, which it matches.
 const PANEL_CHROME =
-  "top-3 right-3 bottom-3 rounded-2xl border border-bw-hairline bg-bw-surface/95 shadow-[0_6px_24px_rgba(0,0,0,0.07)] backdrop-blur-sm";
+  "top-1.5 right-1.5 bottom-1.5 rounded-2xl border border-bw-hairline bg-bw-surface/95 shadow-[0_6px_24px_rgba(0,0,0,0.07)] backdrop-blur-sm";
 
 const RESIZE_STEP = 16;
 
@@ -175,20 +184,24 @@ export default function NodePanel({
         <span className="truncate font-mono text-[10.5px] text-bw-edge">
           {node.id}
         </span>
-        <NodeStats
-          node={node}
-          parentBranch={parentBranch}
-          projectFolder={projectFolder}
-        />
-        <ParentPicker
-          node={node}
-          nodes={nodes}
-          parentBranch={parentBranch}
-          projectFolder={projectFolder}
-        />
+        {/* One line, parent first: it is the referent every number after it is
+            measured against, so it has to be read before them. */}
+        <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1 text-[10.5px] text-bw-muted">
+          <ParentPicker
+            node={node}
+            nodes={nodes}
+            parentBranch={parentBranch}
+            projectFolder={projectFolder}
+          />
+          <NodeStats
+            node={node}
+            parentBranch={parentBranch}
+            projectFolder={projectFolder}
+          />
+        </div>
       </header>
 
-      <nav className="flex items-center gap-1 px-3 pb-3">
+      <nav className="flex items-center gap-1.5 px-3.5 pb-1.5">
         {PANEL_TABS.map((tab) => (
           <TabButton
             isActive={panel.tab === tab}
@@ -219,6 +232,15 @@ export default function NodePanel({
  * Dragging the edge on the canvas does the same thing, but that target is a
  * few pixels of invisible handle — this is the version you can actually hit,
  * and it is the only one that can list what the valid choices are.
+ *
+ * It reads as a phrase rather than a labelled field (user call, 2026-08-13,
+ * after "Branches from" left the user unable to say what the control did). The
+ * old label named the field it wrote; this one names the consequence — the
+ * ahead/behind counts beside it and the Diff and File tabs are all measured
+ * against whatever branch sits here. The branch name *is* the select rather
+ * than a button that reveals one: a reveal would hide the only control that
+ * lists the legal, cycle-free choices behind an interaction nothing hints at.
+ * "Branches from" survives as the accessible name.
  */
 function ParentPicker({
   node,
@@ -260,22 +282,32 @@ function ParentPicker({
   }
 
   return (
-    <label className="mt-1 flex items-center gap-2 text-[11px] text-bw-muted">
-      <span className="shrink-0">Branches from</span>
-      <select
-        className="min-w-0 flex-1 truncate rounded-md border border-bw-hairline bg-bw-surface px-1.5 py-0.5 font-mono text-[11px] text-bw-ink outline-none focus:border-bw-edge"
-        onChange={handleChange}
-        value={parentBranch ?? ""}
-      >
-        {parentBranch === null ? <option value="">unknown</option> : null}
-        {candidates.map((candidate) => (
-          <option key={candidate.id} value={candidate.branch as string}>
-            {candidate.branch}
-          </option>
-        ))}
-      </select>
-      {error ? <span className="text-bw-pending">{error}</span> : null}
-    </label>
+    <span className="flex min-w-0 items-center gap-1">
+      <span className="shrink-0">compared to</span>
+      <span className="relative flex min-w-0 items-center">
+        <select
+          aria-label="Branches from"
+          className="min-w-0 max-w-40 appearance-none truncate rounded-sm bg-transparent py-px pr-3.5 pl-1 font-mono text-[10.5px] text-bw-ink outline-none transition-colors hover:bg-bw-subtle focus:bg-bw-subtle"
+          onChange={handleChange}
+          title="the branch this one's counts and diffs are measured against"
+          value={parentBranch ?? ""}
+        >
+          {parentBranch === null ? <option value="">unknown</option> : null}
+          {candidates.map((candidate) => (
+            <option key={candidate.id} value={candidate.branch as string}>
+              {candidate.branch}
+            </option>
+          ))}
+        </select>
+        <ChevronDown
+          className="pointer-events-none absolute right-0.5 shrink-0 text-bw-edge"
+          size={9}
+        />
+      </span>
+      {error ? (
+        <span className="min-w-0 truncate text-bw-pending">{error}</span>
+      ) : null}
+    </span>
   );
 }
 
@@ -326,16 +358,14 @@ function NodeStats({
     return null;
   }
 
+  // The parent is named once, by the picker to the left of this — repeating it
+  // here would put the same branch on the line twice.
   if (status.ahead === 0 && status.behind === 0 && status.dirtyCount === 0) {
-    return (
-      <span className="text-[10.5px] text-bw-muted">
-        {parentBranch ? `in sync with ${parentBranch}` : "clean"}
-      </span>
-    );
+    return <span>{parentBranch ? "in sync" : "clean"}</span>;
   }
 
   return (
-    <span className="flex items-center gap-2.5 text-[10.5px] text-bw-muted">
+    <span className="flex items-center gap-2.5">
       {status.ahead > 0 ? (
         <span
           className="flex items-center gap-0.5"
@@ -454,7 +484,7 @@ function TabButton({
   return (
     <button
       className={cn(
-        "rounded-lg px-2.5 py-1 text-[12px] transition-colors",
+        "rounded-md px-1.5 py-0.5 text-[12px] transition-colors",
         isActive
           ? "bg-bw-subtle text-bw-ink"
           : "text-bw-muted hover:text-bw-ink"

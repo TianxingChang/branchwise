@@ -62,13 +62,20 @@
   --bw-frame-edge: var(--bw-hairline);
 }
 
-/* Set by AppShell once the main process confirms darwin. The tint is the
-   paper canvas at low alpha — enough for tab labels to stay legible over a
-   busy wallpaper, sheer enough that the vibrancy still reads as glass. */
+/* Set by AppShell once the main process confirms darwin. Low alpha — enough
+   for tab labels to stay legible over a busy wallpaper, sheer enough that the
+   vibrancy still reads as glass.
+
+   The tint is cool rather than the warm paper of the canvas it frames. Glass
+   reads as glass by being colder than what sits behind it, and the contrast
+   with the warm card is what separates frame from content; matching the
+   canvas here made the two blur into one surface. Blue is carried by hue at
+   low saturation, not by a stronger colour — raising the alpha to make it
+   read would just take the transparency back. */
 :root[data-vibrancy="on"] {
-  --bw-chrome: rgb(245 245 243 / 22%);
-  --bw-tab-hover: rgb(255 255 255 / 40%);
-  --bw-frame-edge: rgb(255 255 255 / 60%);
+  --bw-chrome: rgb(198 219 252 / 22%);
+  --bw-tab-hover: rgb(240 246 255 / 40%);
+  --bw-frame-edge: rgb(235 243 255 / 60%);
 }
 
 .dark {
