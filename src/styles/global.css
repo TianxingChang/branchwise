@@ -193,6 +193,17 @@
 }
 
 @layer components {
+  /* Strips that scroll sideways when they run out of room. The bar itself
+     would eat a third of a 20px-tall strip and appear only while scrolling,
+     so the row jumps as it comes and goes. */
+  .no-scrollbar {
+    scrollbar-width: none;
+  }
+
+  .no-scrollbar::-webkit-scrollbar {
+    display: none;
+  }
+
   /* Shiki emits its own inline colours; only the frame is ours. */
   .branchwise-code pre {
     margin: 0;

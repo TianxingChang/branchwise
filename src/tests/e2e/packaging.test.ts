@@ -93,7 +93,7 @@ test("the packaged app carries its own node-pty and can open a shell", async () 
       });
 
       await canvas.getByText("main", { exact: true }).click();
-      await page.getByRole("button", { name: "Terminal" }).click();
+      await page.getByRole("button", { exact: true, name: "Terminal" }).click();
 
       const screen = page.locator(".xterm-screen");
       await expect(screen).toBeVisible({ timeout: 30_000 });

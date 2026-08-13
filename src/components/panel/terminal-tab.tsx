@@ -1,182 +1,83 @@
-import { FitAddon } from "@xterm/addon-fit";
-import { Terminal as Xterm } from "@xterm/xterm";
-import "@xterm/xterm/css/xterm.css";
-import { RotateCcw } from "lucide-react";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { Fragment, useCallback, useEffect } from "react";
+import { killTerminal, listTerminals } from "@/actions/terminal";
+import TerminalPane from "@/components/panel/terminal-pane";
 import {
-  attachTerminal,
-  resizeTerminal,
-  restartTerminal,
-  type TerminalSize,
-  writeToTerminal,
-} from "@/actions/terminal";
+  type PaneNode,
+  type SplitOrientation,
+  terminalIdsOf,
+} from "@/lib/terminal/layout";
+import { terminalsOf, useTerminalStore } from "@/stores/terminal-store";
 import type { CanvasNode } from "@/types/branch";
-
-/** Matches the surface tokens in global.css so the shell is not a black hole. */
-const THEME = {
-  background: "#ffffff",
-  black: "#1a1a18",
-  blue: "#2f6bff",
-  brightBlack: "#8c8b84",
-  cursor: "#1a1a18",
-  cursorAccent: "#ffffff",
-  foreground: "#1a1a18",
-  green: "#3e9e63",
-  red: "#c0392f",
-  selectionBackground: "#d7e2ff",
-  yellow: "#d9a22e",
-};
+import { cn } from "@/utils/tailwind";
 
 interface TerminalTabProps {
   node: CanvasNode;
 }
 
-/**
- * Streams one terminal into an xterm instance until the signal aborts.
- *
- * Lives outside the component so the effect reads as setup rather than as a
- * loop with error handling folded into it.
- */
-async function pump(options: {
-  isDisposed: () => boolean;
-  onExit: (exitCode: number) => void;
-  onFailure: (message: string) => void;
-  signal: AbortSignal;
-  size: TerminalSize;
-  term: Xterm;
-  worktreePath: string;
-}): Promise<void> {
-  try {
-    const stream = await attachTerminal(
-      options.worktreePath,
-      options.size,
-      options.signal
-    );
-
-    for await (const event of stream) {
-      if (options.isDisposed()) {
-        return;
-      }
-      if (event.kind === "data") {
-        options.term.write(event.data);
-      } else {
-        options.onExit(event.exitCode);
-      }
-    }
-  } catch (error) {
-    options.onFailure(
-      error instanceof Error ? error.message : "The terminal could not start."
-    );
-  }
-}
-
 export default function TerminalTab({ node }: TerminalTabProps) {
-  const hostRef = useRef<HTMLDivElement>(null);
-  const termRef = useRef<Xterm | null>(null);
-  const fitRef = useRef<FitAddon | null>(null);
-  const [exited, setExited] = useState<number | null>(null);
-  const [error, setError] = useState<string | null>(null);
-
   const worktreePath = node.id;
   const missing = node.prunable;
 
+  const layout = useTerminalStore((state) => terminalsOf(state, worktreePath));
+  const close = useTerminalStore((state) => state.close);
+  const focus = useTerminalStore((state) => state.focus);
+  const reconcile = useTerminalStore((state) => state.reconcile);
+  const split = useTerminalStore((state) => state.split);
+  const openTab = useTerminalStore((state) => state.openTab);
+
+  // The shells are the main process's to own, so the layout is rebuilt from
+  // what is actually running rather than from whatever this component last
+  // remembered — it unmounts on every panel tab switch, the shells do not.
   useEffect(() => {
-    const host = hostRef.current;
-    if (!host || missing) {
+    if (missing) {
       return;
     }
 
-    const term = new Xterm({
-      allowProposedApi: true,
-      cursorBlink: true,
-      fontFamily:
-        '"Geist Mono", ui-monospace, SFMono-Regular, Menlo, monospace',
-      fontSize: 12,
-      lineHeight: 1.35,
-      scrollback: 5000,
-      theme: THEME,
-    });
-    const fit = new FitAddon();
-    term.loadAddon(fit);
-    term.open(host);
-    termRef.current = term;
-    fitRef.current = fit;
+    let active = true;
 
-    setExited(null);
-    setError(null);
-
-    const controller = new AbortController();
-    let disposed = false;
-
-    const measure = () => {
-      try {
-        fit.fit();
-      } catch {
-        // The host can be zero-sized for a frame while the panel animates.
-      }
-      return { columns: term.cols, rows: term.rows };
-    };
-
-    const size = measure();
-
-    const typed = term.onData((data) => {
-      writeToTerminal(worktreePath, data).catch(() => undefined);
-    });
-
-    const observer = new ResizeObserver(() => {
-      const next = measure();
-      resizeTerminal(worktreePath, next).catch(() => undefined);
-    });
-    observer.observe(host);
-
-    pump({
-      isDisposed: () => disposed,
-      onExit: setExited,
-      onFailure: (message) => {
-        if (!(disposed || controller.signal.aborted)) {
-          setError(message);
+    listTerminals(worktreePath)
+      .then(({ terminalIds }) => {
+        if (active) {
+          reconcile(worktreePath, terminalIds);
         }
-      },
-      signal: controller.signal,
-      size,
-      term,
-      worktreePath,
-    });
+      })
+      .catch(() => undefined);
 
     return () => {
-      disposed = true;
-      controller.abort();
-      observer.disconnect();
-      typed.dispose();
-      term.dispose();
-      termRef.current = null;
-      fitRef.current = null;
+      active = false;
     };
-    // The shell itself is not torn down here: it belongs to the worktree, not
-    // to this view, so switching panel tabs must not kill a running process.
-  }, [missing, worktreePath]);
+  }, [missing, reconcile, worktreePath]);
 
-  const handleRestart = useCallback(async () => {
-    const term = termRef.current;
-    if (!term) {
-      return;
-    }
-    term.clear();
-    setExited(null);
-    setError(null);
-    try {
-      await restartTerminal(worktreePath, {
-        columns: term.cols,
-        rows: term.rows,
-      });
-    } catch (restartError) {
-      setError(
-        restartError instanceof Error
-          ? restartError.message
-          : "The terminal could not restart."
-      );
-    }
-  }, [worktreePath]);
+  const handleFocus = useCallback(
+    (terminalId: string) => {
+      focus(worktreePath, terminalId);
+    },
+    [focus, worktreePath]
+  );
+
+  const handleSplit = useCallback(
+    (terminalId: string, orientation: SplitOrientation) => {
+      split(worktreePath, terminalId, orientation);
+    },
+    [split, worktreePath]
+  );
+
+  const handleOpenTab = useCallback(
+    (besideTerminalId: string) => {
+      openTab(worktreePath, besideTerminalId);
+    },
+    [openTab, worktreePath]
+  );
+
+  const handleClose = useCallback(
+    (terminalId: string) => {
+      // Drop the pane first so it unmounts and stops streaming before the
+      // shell goes; killing underneath a live view races the teardown.
+      close(worktreePath, terminalId);
+      killTerminal({ terminalId, worktreePath }).catch(() => undefined);
+    },
+    [close, worktreePath]
+  );
 
   if (missing) {
     return (
@@ -190,30 +91,97 @@ export default function TerminalTab({ node }: TerminalTabProps) {
   }
 
   return (
-    <div className="relative flex h-full flex-col">
-      <div className="min-h-0 flex-1 overflow-hidden px-3 py-2" ref={hostRef} />
-
-      {error ? (
-        <p className="border-bw-hairline border-t px-4 py-2 text-[12px] text-bw-pending">
-          {error}
-        </p>
-      ) : null}
-
-      {exited === null ? null : (
-        <div className="flex items-center justify-between border-bw-hairline border-t px-4 py-2">
-          <span className="text-[12px] text-bw-muted">
-            Shell exited with code {exited}.
-          </span>
-          <button
-            className="flex items-center gap-1.5 rounded-lg border border-bw-hairline bg-bw-surface px-2.5 py-1 text-[12px] text-bw-ink transition-colors hover:border-bw-edge"
-            onClick={handleRestart}
-            type="button"
-          >
-            <RotateCcw size={12} />
-            Restart
-          </button>
-        </div>
-      )}
+    <div className="h-full min-h-0 bg-bw-canvas">
+      <PaneTree
+        activeId={layout.activeId}
+        canClose={terminalIdsOf(layout.root).length > 1}
+        node={layout.root}
+        onClose={handleClose}
+        onFocus={handleFocus}
+        onOpenTab={handleOpenTab}
+        onSplit={handleSplit}
+        worktreePath={worktreePath}
+      />
     </div>
   );
+}
+
+interface PaneTreeProps {
+  activeId: string;
+  canClose: boolean;
+  node: PaneNode;
+  onClose: (terminalId: string) => void;
+  onFocus: (terminalId: string) => void;
+  onOpenTab: (besideTerminalId: string) => void;
+  onSplit: (terminalId: string, orientation: SplitOrientation) => void;
+  /** The run this node sits in: how many panes share it, and which way. */
+  run?: { length: number; orientation: SplitOrientation };
+  worktreePath: string;
+}
+
+/**
+ * Draws the layout tree.
+ *
+ * Recursive because the tree is: a split's child is either a terminal or
+ * another split, and nothing here needs to know which until it looks.
+ *
+ * Every child of a run gets `flex-1` off the same basis, which is what makes
+ * three panes exactly a third each. The evenness is the flat run's doing, not
+ * this component's — nested pairs would render as a half and two quarters no
+ * matter what these classes said.
+ */
+function PaneTree({ node, run, ...rest }: PaneTreeProps) {
+  if (node.kind === "leaf") {
+    return (
+      // Keyed by id so re-arranging panes builds a new xterm for a new shell
+      // rather than re-pointing an existing one at a different pty.
+      <TerminalPane
+        canClose={rest.canClose}
+        group={node.group}
+        isActive={node.group.terminalIds.includes(rest.activeId)}
+        onClose={rest.onClose}
+        onFocus={rest.onFocus}
+        onOpenTab={rest.onOpenTab}
+        onSplit={rest.onSplit}
+        run={run}
+        worktreePath={rest.worktreePath}
+      />
+    );
+  }
+
+  const stacked = node.orientation === "horizontal";
+  const childRun = {
+    length: node.children.length,
+    orientation: node.orientation,
+  };
+
+  return (
+    <div
+      className={cn(
+        "flex h-full min-h-0 min-w-0",
+        stacked ? "flex-col" : "flex-row"
+      )}
+    >
+      {node.children.map((child, at) => (
+        <Fragment key={firstTerminalOf(child)}>
+          {at > 0 ? (
+            <div
+              className={cn(
+                "shrink-0 bg-bw-hairline",
+                stacked ? "h-px w-full" : "h-full w-px"
+              )}
+            />
+          ) : null}
+          <div className="min-h-0 min-w-0 flex-1 basis-0">
+            <PaneTree node={child} run={childRun} {...rest} />
+          </div>
+        </Fragment>
+      ))}
+    </div>
+  );
+}
+
+/** A stable key for a subtree: the panes move, the terminals do not. */
+function firstTerminalOf(node: PaneNode): string {
+  return terminalIdsOf(node)[0] as string;
 }

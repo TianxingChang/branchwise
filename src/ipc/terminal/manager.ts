@@ -2,6 +2,8 @@ import { existsSync } from "node:fs";
 import type { IPty } from "node-pty";
 import { EventQueue } from "@/lib/queue";
 import { appendToScrollback } from "@/lib/terminal/buffer";
+import { shellEnv } from "@/lib/terminal/env";
+import { idOfKey, isKeyUnder, worktreeOfKey } from "@/lib/terminal/identity";
 import type { TerminalEvent } from "@/types/terminal";
 
 const DEFAULT_COLUMNS = 80;
@@ -83,7 +85,9 @@ async function spawnSession(
     child = pty.spawn(shellCommand(), [], {
       cols: options.columns,
       cwd: options.cwd,
-      env: { ...process.env, TERM: "xterm-256color" },
+      // Not process.env verbatim: whatever launched branchwise may have left
+      // its own variables in it, and the user's shell should not inherit them.
+      env: shellEnv(process.env),
       name: "xterm-256color",
     });
   } catch (error) {
@@ -258,13 +262,38 @@ function destroy(key: string): void {
   subscribers.delete(key);
 }
 
-/** Stops every session whose worktree lives under a directory. */
+/**
+ * Stops every session whose worktree lives under a directory.
+ *
+ * Matches on the key's *worktree*, not on the key itself. A key stopped being
+ * a bare path when a worktree gained more than one terminal, so comparing raw
+ * prefixes here would match only a terminal whose id happened to look like a
+ * child directory — and leave every other shell of a closing project running.
+ */
 export function killUnder(prefix: string): void {
   for (const key of [...sessions.keys(), ...subscribers.keys()]) {
-    if (key === prefix || key.startsWith(`${prefix}/`)) {
+    if (isKeyUnder(key, prefix)) {
       destroy(key);
     }
   }
+}
+
+/**
+ * The ids of a worktree's terminals, in the order they were opened.
+ *
+ * The live shells are the truth about which terminals exist; the renderer asks
+ * rather than remembering, so a panel remount or a node switch comes back to
+ * the right set without persisting anything. A shell that has exited is still
+ * listed — its pane stays until the user closes it.
+ */
+export function terminalIdsFor(worktreePath: string): string[] {
+  const ids: string[] = [];
+  for (const key of sessions.keys()) {
+    if (worktreeOfKey(key) === worktreePath) {
+      ids.push(idOfKey(key));
+    }
+  }
+  return ids;
 }
 
 export function killAll(): void {
