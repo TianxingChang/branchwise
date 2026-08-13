@@ -25,17 +25,18 @@ import { cn } from "@/utils/tailwind";
 /**
  * How wide the conversation is allowed to get, whatever the panel does.
  *
- * A line of prose stops being readable somewhere past about 75 characters —
- * the eye loses the start of the next line on the way back. At this tab's
- * 13px that measure lands near 34rem; the extra here buys room for code
- * blocks and tool chips without letting a paragraph run the full width of a
- * panel dragged out to fill the window.
+ * Wider than a measure for prose alone (user call, 2026-08-13). At this tab's
+ * 14.5px the textbook 75-character line lands near 34rem, and this is closer
+ * to 95 — deliberately, because a transcript is not a page of prose. It is
+ * prose interleaved with code blocks, tool chips and file paths, all of which
+ * want room, and against a panel dragged wide the alternative was worse: a
+ * narrow column stranded between two empty margins.
  *
- * There is no matching minimum: the column is fluid below the cap, and the
- * floor is the panel's own MIN_PANEL_WIDTH. A real min-width here would just
+ * There is still no matching minimum. The column is fluid below the cap and
+ * the floor is the panel's own MIN_PANEL_WIDTH; a min-width here would
  * overflow a narrow panel sideways rather than protect anything.
  */
-const MEASURE = "mx-auto w-full max-w-[36rem]";
+const MEASURE = "mx-auto w-full max-w-[46rem]";
 
 /** The transcript reads at its own scale; see --bw-prose-size in global.css. */
 const PROSE_SCALE = "[--bw-prose-size:14.5px]";

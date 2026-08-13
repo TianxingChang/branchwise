@@ -167,38 +167,49 @@ export default function NodePanel({
         />
       )}
 
-      <header className="flex flex-col gap-1 px-4 pt-3.5 pb-3">
-        <div className="flex items-center gap-2">
-          <span className="min-w-0 flex-1 truncate font-mono text-[13px] text-bw-ink tracking-tight">
+      {/* One row: the branch, what it is measured against, and the numbers
+          that follow from that — parent first, because it is the referent
+          every number after it is relative to.
+
+          The worktree's path used to have a row of its own and no longer
+          does. It was not clickable or copyable, it truncated anyway, and the
+          canvas already says which worktree is selected — a whole row spent
+          on something nobody could act on. It is the branch name's tooltip
+          now, which is where you would look for it.
+
+          It wraps rather than truncating the picker away: below about a
+          docked panel's width the name takes the first line and the meta
+          drops beneath it. Close stays pinned to the first line either way. */}
+      <header className="flex items-start gap-2 px-4 py-2.5">
+        <div className="flex min-w-0 flex-1 flex-wrap items-center gap-x-2.5 gap-y-1">
+          <span
+            className="min-w-0 max-w-full truncate font-mono text-[13px] text-bw-ink tracking-tight"
+            title={node.id}
+          >
             {label}
           </span>
-          <button
-            aria-label="Hide branch panel"
-            className="flex size-6 items-center justify-center rounded-md text-bw-muted transition-colors hover:bg-bw-subtle hover:text-bw-ink"
-            onClick={collapse}
-            type="button"
-          >
-            <X size={13} />
-          </button>
+          <div className="flex min-w-0 flex-wrap items-center gap-x-2.5 gap-y-1 text-[10.5px] text-bw-muted">
+            <ParentPicker
+              node={node}
+              nodes={nodes}
+              parentBranch={parentBranch}
+              projectFolder={projectFolder}
+            />
+            <NodeStats
+              node={node}
+              parentBranch={parentBranch}
+              projectFolder={projectFolder}
+            />
+          </div>
         </div>
-        <span className="truncate font-mono text-[10.5px] text-bw-edge">
-          {node.id}
-        </span>
-        {/* One line, parent first: it is the referent every number after it is
-            measured against, so it has to be read before them. */}
-        <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1 text-[10.5px] text-bw-muted">
-          <ParentPicker
-            node={node}
-            nodes={nodes}
-            parentBranch={parentBranch}
-            projectFolder={projectFolder}
-          />
-          <NodeStats
-            node={node}
-            parentBranch={parentBranch}
-            projectFolder={projectFolder}
-          />
-        </div>
+        <button
+          aria-label="Hide branch panel"
+          className="flex size-6 shrink-0 items-center justify-center rounded-md text-bw-muted transition-colors hover:bg-bw-subtle hover:text-bw-ink"
+          onClick={collapse}
+          type="button"
+        >
+          <X size={13} />
+        </button>
       </header>
 
       <nav className="flex items-center gap-1.5 px-3.5 pb-1.5">
