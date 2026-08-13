@@ -1,6 +1,9 @@
-import { ArrowUp, Sparkles, Square } from "lucide-react";
+import { Sparkles } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { worktreeDiffSummary } from "@/actions/repo";
+import Composer from "@/components/panel/agent/composer";
+import MessageBody from "@/components/panel/agent/message-body";
+import ThinkingTrace from "@/components/panel/agent/thinking-trace";
 import {
   NoticeCard,
   PermissionCard,
@@ -69,23 +72,6 @@ export default function AgentTab({
     sendMessage(worktreePath, draft);
     setDraft("");
   }, [draft, running, sendMessage, worktreePath]);
-
-  const handleChange = useCallback(
-    (event: React.ChangeEvent<HTMLTextAreaElement>) => {
-      setDraft(event.target.value);
-    },
-    []
-  );
-
-  const handleKeyDown = useCallback(
-    (event: React.KeyboardEvent<HTMLTextAreaElement>) => {
-      if (event.key === "Enter" && !event.shiftKey) {
-        event.preventDefault();
-        submit();
-      }
-    },
-    [submit]
-  );
 
   const handleInterrupt = useCallback(() => {
     interrupt(worktreePath);
@@ -158,37 +144,16 @@ export default function AgentTab({
         />
       ) : null}
 
-      <div className="border-bw-hairline border-t p-3">
-        <div className="flex items-end gap-2 rounded-xl border border-bw-hairline bg-bw-canvas/60 py-2 pr-2 pl-3 focus-within:border-bw-edge">
-          <textarea
-            className="max-h-28 min-h-6 flex-1 resize-none bg-transparent text-[12.5px] text-bw-ink leading-relaxed outline-none placeholder:text-bw-muted"
-            disabled={running}
-            onChange={handleChange}
-            onKeyDown={handleKeyDown}
-            placeholder={`Ask the agent to work on ${branchLabel}…`}
-            rows={1}
-            value={draft}
-          />
-          {running ? (
-            <button
-              className="flex shrink-0 items-center gap-1 rounded-full border border-bw-hairline px-2.5 py-1 text-[11px] text-bw-muted transition-colors hover:border-bw-edge hover:text-bw-ink"
-              onClick={handleInterrupt}
-              type="button"
-            >
-              <Square size={10} strokeWidth={2.5} />
-              Interrupt
-            </button>
-          ) : null}
-          <button
-            aria-label="Send message"
-            className="flex size-7 shrink-0 items-center justify-center rounded-full bg-bw-ink text-white transition-opacity disabled:opacity-25"
-            disabled={draft.trim().length === 0 || running}
-            onClick={submit}
-            type="button"
-          >
-            <ArrowUp size={14} strokeWidth={2.5} />
-          </button>
-        </div>
+      <div className="px-3 pt-1 pb-3">
+        <Composer
+          disabled={running}
+          onChange={setDraft}
+          onInterrupt={handleInterrupt}
+          onSubmit={submit}
+          placeholder={`Ask the agent to work on ${branchLabel}…`}
+          running={running}
+          text={draft}
+        />
       </div>
     </div>
   );
@@ -301,20 +266,25 @@ function EmptyConversation() {
 function AssistantText({ text }: { text: string }) {
   return (
     <div className="flex gap-2">
-      <Sparkles className="mt-0.5 shrink-0 text-bw-muted" size={13} />
-      <p className="whitespace-pre-wrap text-[12.5px] text-bw-ink leading-relaxed">
-        {text}
-      </p>
+      <Sparkles className="mt-1 shrink-0 text-bw-muted" size={13} />
+      <div className="min-w-0 flex-1">
+        <MessageBody text={text} />
+      </div>
     </div>
   );
 }
 
-function ThinkingDetails({ text }: { text: string }) {
+function ThinkingDetails({
+  running,
+  text,
+}: {
+  running?: boolean;
+  text: string;
+}) {
   return (
-    <details className="pl-6 text-[11px] text-bw-muted">
-      <summary className="cursor-pointer select-none">thinking</summary>
-      <p className="mt-1 whitespace-pre-wrap leading-relaxed">{text}</p>
-    </details>
+    <div className="pl-[21px]">
+      <ThinkingTrace running={running} text={text} />
+    </div>
   );
 }
 
@@ -334,7 +304,7 @@ function StreamingMessage({
       ) : (
         <p className="pl-6 text-[12.5px] text-bw-muted">Thinking…</p>
       )}
-      {thinking ? <ThinkingDetails text={thinking} /> : null}
+      {thinking ? <ThinkingDetails running text={thinking} /> : null}
     </div>
   );
 }

@@ -54,6 +54,30 @@
   --bw-done: #3e9e63;
   --bw-removed: #c05b4d;
 
+  /*
+   * A structural scale for conversation surfaces, taken from Beautiful UI
+   * (beautifului.dev, MIT) and expressed in this app's palette rather than
+   * its own. Its neutrals are cool grey and ours are warm paper; adopting
+   * both would put two design systems in one window, so what carries over is
+   * the *system* — a three-step ink ramp, two line weights, a shadow ladder
+   * where every level starts with a hairline ring, and four radii that say
+   * what a thing is: chip, control, card, field.
+   */
+  --bw-ink-2: #5f5e58;
+  --bw-radius-chip: 6px;
+  --bw-radius-control: 8px;
+  --bw-radius-card: 10px;
+  --bw-radius-field: 14px;
+  --bw-shadow-hairline: 0 0 0 1px var(--bw-hairline);
+  --bw-shadow-btn: 0 0 0 1px var(--bw-edge), 0 1px 2px rgb(26 26 24 / 5%);
+  --bw-shadow-card:
+    0 0 0 1px var(--bw-hairline), 0 1px 2px rgb(26 26 24 / 4%),
+    0 2px 6px rgb(26 26 24 / 3%);
+  --bw-shadow-raised:
+    0 0 0 1px var(--bw-hairline), 0 2px 10px rgb(26 26 24 / 4%);
+  --bw-shadow-overlay:
+    0 0 0 1px var(--bw-hairline), 0 8px 28px rgb(26 26 24 / 6%);
+
   /* The window frame. Opaque by default: only macOS puts a blur layer behind
      the page, so on every other platform a translucent frame would show the
      window's backing colour and nothing more. */
@@ -153,6 +177,16 @@
   --radius-2xl: calc(var(--radius) + 8px);
   --radius-3xl: calc(var(--radius) + 12px);
   --radius-4xl: calc(var(--radius) + 16px);
+  --color-bw-ink-2: var(--bw-ink-2);
+  --radius-chip: var(--bw-radius-chip);
+  --radius-control: var(--bw-radius-control);
+  --radius-card: var(--bw-radius-card);
+  --radius-field: var(--bw-radius-field);
+  --shadow-hairline: var(--bw-shadow-hairline);
+  --shadow-btn: var(--bw-shadow-btn);
+  --shadow-card: var(--bw-shadow-card);
+  --shadow-raised: var(--bw-shadow-raised);
+  --shadow-overlay: var(--bw-shadow-overlay);
   --color-bw-chrome: var(--bw-chrome);
   --color-bw-tab-hover: var(--bw-tab-hover);
   --color-bw-frame-edge: var(--bw-frame-edge);
