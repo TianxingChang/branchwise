@@ -22,7 +22,7 @@ export default function ToolChip({ detail, name, ok }: ToolChipProps) {
     <span
       className={cn(
         "inline-flex min-w-0 max-w-full items-center gap-1 rounded-chip border px-1.5 py-0.5",
-        "font-mono text-[10.5px] leading-[15px]",
+        "font-mono text-[11.5px] leading-[16px]",
         ok === false
           ? "border-bw-removed/30 bg-bw-removed/5 text-bw-removed"
           : "border-bw-hairline bg-bw-canvas/70 text-bw-muted"

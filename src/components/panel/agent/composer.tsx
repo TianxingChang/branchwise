@@ -101,7 +101,7 @@ export default function Composer({
 
         <textarea
           aria-label="Message the agent"
-          className="col-start-2 row-start-1 min-h-7 w-full min-w-0 resize-none bg-transparent px-1 py-[5px] text-[13px] text-bw-ink leading-[18px] outline-none [overflow-wrap:anywhere] placeholder:text-bw-muted"
+          className="col-start-2 row-start-1 min-h-7 w-full min-w-0 resize-none bg-transparent px-1 py-[5px] text-[13.5px] text-bw-ink leading-[19px] outline-none [overflow-wrap:anywhere] placeholder:text-bw-muted"
           disabled={disabled}
           onChange={handleChange}
           onKeyDown={handleKeyDown}

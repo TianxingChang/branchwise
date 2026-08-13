@@ -19,6 +19,25 @@ import {
 import { useRepoStore } from "@/stores/repo-store";
 import type { AgentConfig, AgentUsage } from "@/types/agent";
 import type { DiffSummary } from "@/types/diff";
+import { cn } from "@/utils/tailwind";
+
+/**
+ * How wide the conversation is allowed to get, whatever the panel does.
+ *
+ * A line of prose stops being readable somewhere past about 75 characters —
+ * the eye loses the start of the next line on the way back. At this tab's
+ * 13px that measure lands near 34rem; the extra here buys room for code
+ * blocks and tool chips without letting a paragraph run the full width of a
+ * panel dragged out to fill the window.
+ *
+ * There is no matching minimum: the column is fluid below the cap, and the
+ * floor is the panel's own MIN_PANEL_WIDTH. A real min-width here would just
+ * overflow a narrow panel sideways rather than protect anything.
+ */
+const MEASURE = "mx-auto w-full max-w-[36rem]";
+
+/** The transcript reads at its own scale; see --bw-prose-size in global.css. */
+const PROSE_SCALE = "[--bw-prose-size:13.5px]";
 
 interface AgentTabProps {
   branchLabel: string;
@@ -113,38 +132,39 @@ export default function AgentTab({
         <InheritedBadge inherited={session.inherited} />
       ) : null}
 
-      <div
-        className="min-h-0 flex-1 space-y-3 overflow-y-auto px-4 py-4"
-        ref={scrollRef}
-      >
-        {hasContent ? null : <EmptyConversation />}
+      <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4" ref={scrollRef}>
+        <div className={cn(MEASURE, PROSE_SCALE, "space-y-3")}>
+          {hasContent ? null : <EmptyConversation />}
 
-        {conversation.items.map((item) => (
-          <ConversationItemRow
-            item={item}
-            key={item.id}
-            onRespond={handleRespond}
-            showCost={item.id === lastAssistantId}
-          />
-        ))}
+          {conversation.items.map((item) => (
+            <ConversationItemRow
+              item={item}
+              key={item.id}
+              onRespond={handleRespond}
+              showCost={item.id === lastAssistantId}
+            />
+          ))}
 
-        {running ? (
-          <StreamingMessage
-            text={conversation.streamingText}
-            thinking={conversation.streamingThinking}
-          />
-        ) : null}
+          {running ? (
+            <StreamingMessage
+              text={conversation.streamingText}
+              thinking={conversation.streamingThinking}
+            />
+          ) : null}
+        </div>
       </div>
 
       {session.config ? (
-        <AgentConfigBar
-          config={session.config}
-          hasConversation={session.hasConversation}
-          onChange={handleConfigChange}
-        />
+        <div className={cn(MEASURE, "px-3")}>
+          <AgentConfigBar
+            config={session.config}
+            hasConversation={session.hasConversation}
+            onChange={handleConfigChange}
+          />
+        </div>
       ) : null}
 
-      <div className="px-3 pt-1 pb-3">
+      <div className={cn(MEASURE, "px-3 pt-1 pb-3")}>
         <Composer
           disabled={running}
           onChange={setDraft}
@@ -338,7 +358,7 @@ function ConversationItemRow({
   if (item.kind === "user") {
     return (
       <div className="flex justify-end">
-        <p className="max-w-[85%] whitespace-pre-wrap rounded-xl bg-bw-subtle px-3 py-2 text-[12.5px] text-bw-ink leading-relaxed">
+        <p className="max-w-[85%] whitespace-pre-wrap rounded-card bg-bw-subtle px-3 py-2 text-[13.5px] text-bw-ink leading-relaxed">
           {item.text}
         </p>
       </div>

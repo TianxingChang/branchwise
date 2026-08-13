@@ -46,7 +46,7 @@ export default function ThinkingTrace({
         <Brain className="shrink-0 text-bw-muted" size={12} />
         <span
           className={cn(
-            "text-[11.5px] text-bw-ink-2",
+            "text-[12.5px] text-bw-ink-2",
             // The shimmer says "still going" without a spinner taking up a
             // line of its own beside text that is already moving.
             running && "animate-pulse"
@@ -55,14 +55,14 @@ export default function ThinkingTrace({
           {running ? "Thinking" : "Thought"}
         </span>
         {typeof elapsed === "number" ? (
-          <span className="font-mono text-[10.5px] text-bw-muted tabular-nums">
+          <span className="font-mono text-[11px] text-bw-muted tabular-nums">
             {elapsed.toFixed(1)}s
           </span>
         ) : null}
       </button>
 
       {open ? (
-        <p className="whitespace-pre-wrap px-2 pb-2 pl-[30px] text-[11.5px] text-bw-muted leading-relaxed">
+        <p className="whitespace-pre-wrap px-2 pb-2 pl-[30px] text-[12.5px] text-bw-muted leading-relaxed">
           {text}
         </p>
       ) : null}
