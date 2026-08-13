@@ -147,6 +147,15 @@ export async function ensureSession(
 ): Promise<void> {
   const existing = sessions.get(key);
   if (existing && existing.exit === null) {
+    // Adopt the size the view is attaching at. A shell outlives the view
+    // showing it, so by the time something attaches again the pane may be a
+    // different size than the shell was last told about — it was split in
+    // two, or the panel was dragged while this pane was unmounted. Ignoring
+    // it left the shell drawing prompts for a width the pane no longer has,
+    // which is what overflows them into runs of repeated characters.
+    if (options.columns !== undefined && options.rows !== undefined) {
+      resize(key, options.columns, options.rows);
+    }
     return;
   }
   if (existing) {

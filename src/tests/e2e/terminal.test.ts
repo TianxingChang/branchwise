@@ -399,3 +399,41 @@ test("a drag stops rather than crushing a pane out of usable width", async () =>
   const { before } = await panesAround(divider);
   expect(before).toBeGreaterThan(120);
 });
+
+test("dragging the panel edge does not leave a stack of prompts behind", async () => {
+  // Whatever layout the tests before this left behind; the first pane will do.
+  await expect(panes().first()).toBeVisible({ timeout: 20_000 });
+  await page.waitForTimeout(500);
+
+  /** Rendered lines that have anything on them. */
+  const filledRows = () =>
+    page
+      .locator(".xterm-rows")
+      .first()
+      .evaluate(
+        (rows) =>
+          [...rows.children].filter(
+            (row) => (row.textContent ?? "").trim().length > 0
+          ).length
+      );
+
+  const before = await filledRows();
+
+  const grip = page.getByRole("separator", { name: "Resize panel" });
+  const box = await grip.boundingBox();
+  if (!box) {
+    throw new Error("the panel grip is not on screen");
+  }
+  const y = box.y + box.height / 2;
+  await page.mouse.move(box.x + box.width / 2, y);
+  await page.mouse.down();
+  // Slowly, across many column boundaries — the way a person drags.
+  await page.mouse.move(box.x - 200, y, { steps: 40 });
+  await page.mouse.up();
+  await page.waitForTimeout(600);
+
+  // A drag crosses dozens of column boundaries. Telling the shell about each
+  // one made a themed prompt redraw dozens of times, and the redraws piled up
+  // instead of replacing each other.
+  expect(await filledRows()).toBeLessThanOrEqual(before + 2);
+});

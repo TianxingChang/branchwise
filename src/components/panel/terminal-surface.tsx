@@ -12,6 +12,14 @@ import {
   writeToTerminal,
 } from "@/actions/terminal";
 
+/**
+ * How long a pane must hold still before its shell is told the new size.
+ *
+ * Long enough to swallow a drag, short enough that letting go feels immediate.
+ * The pane itself is not waiting on this — only the message to the pty is.
+ */
+const RESIZE_SETTLE_MS = 90;
+
 /** Matches the surface tokens in global.css so the shell is not a black hole. */
 const THEME = {
   background: "#ffffff",
@@ -134,8 +142,49 @@ export default function TerminalSurface({
       writeToTerminal(target, data).catch(() => undefined);
     });
 
+    let settle: ReturnType<typeof setTimeout> | undefined;
+    let frame = 0;
+    let mid = false;
+    let told = initial;
+
+    const tellTheShell = () => {
+      const next = measure();
+      if (next.columns < 2 || next.rows < 1) {
+        return;
+      }
+      // The observer reports pixels; the pty only cares about cells, and most
+      // ticks of a slow drag move neither.
+      if (next.columns === told.columns && next.rows === told.rows) {
+        return;
+      }
+      told = next;
+      resizeTerminal(target, next).catch(() => undefined);
+    };
+
+    // Once at the start of a burst, once when it ends, and nothing in between.
+    //
+    // Dragging the panel edge crosses dozens of column boundaries on the way,
+    // and each crossing is a real SIGWINCH that makes a themed prompt redraw
+    // itself — which is how a drag used to leave a stack of prompts behind.
+    // Waiting for the burst to end would fix that and break the other case:
+    // splitting a pane is a single change, and delaying it leaves the shell
+    // drawing at the old width in a pane that has already been halved.
     const observer = new ResizeObserver(() => {
-      resizeTerminal(target, measure()).catch(() => undefined);
+      clearTimeout(settle);
+      if (!mid) {
+        mid = true;
+        // A frame late, not synchronously: the observer runs on the layout
+        // that triggered it, and a pane that is being halved has not been
+        // given its new width yet. Measuring here reads the old size, finds
+        // it unchanged, and skips — leaving the shell to draw one prompt at
+        // the wrong width until the trailing edge catches it.
+        cancelAnimationFrame(frame);
+        frame = requestAnimationFrame(tellTheShell);
+      }
+      settle = setTimeout(() => {
+        mid = false;
+        tellTheShell();
+      }, RESIZE_SETTLE_MS);
     });
     observer.observe(host);
 
@@ -155,6 +204,8 @@ export default function TerminalSurface({
 
     return () => {
       disposed = true;
+      clearTimeout(settle);
+      cancelAnimationFrame(frame);
       controller.abort();
       observer.disconnect();
       typed.dispose();
