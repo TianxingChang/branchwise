@@ -7,6 +7,7 @@ import {
   type ElectronApplication,
   _electron as electron,
   expect,
+  type Locator,
   type Page,
   test,
 } from "@playwright/test";
@@ -332,4 +333,69 @@ test("a shell does not inherit the launcher's package-manager environment", asyn
   await expect(page.locator(".xterm-rows")).toContainText("PREFIX=[]:[]", {
     timeout: 20_000,
   });
+});
+
+/**
+ * The panes either side of a divider, measured from the divider itself.
+ *
+ * The suite shares one app, so by this point the layout is whatever earlier
+ * tests left behind. Asking the divider for its own neighbours is true of any
+ * layout, where indexing the panes assumes one this test did not build.
+ */
+function panesAround(divider: Locator) {
+  return divider.evaluate((element) => ({
+    after: element.nextElementSibling?.getBoundingClientRect().width ?? 0,
+    before: element.previousElementSibling?.getBoundingClientRect().width ?? 0,
+  }));
+}
+
+async function dragBy(divider: Locator, dx: number) {
+  const box = await divider.boundingBox();
+  if (!box) {
+    throw new Error("the divider is not on screen");
+  }
+  const y = box.y + box.height / 2;
+  await page.mouse.move(box.x + box.width / 2, y);
+  await page.mouse.down();
+  await page.mouse.move(box.x + box.width / 2 + dx, y, { steps: 16 });
+  await page.mouse.up();
+}
+
+test("a divider can be dragged to resize the panes either side", async () => {
+  await openTerminalFor("feature");
+  await page.getByRole("button", { name: "Split left and right" }).click();
+
+  // By name, not by cursor class: the panel's own edge grip is a separator
+  // with a col-resize cursor too, and it is earlier in the DOM.
+  const divider = page.getByRole("separator", {
+    name: "Resize terminal panes",
+  });
+  await expect(divider).toBeVisible({ timeout: 20_000 });
+
+  const before = await panesAround(divider);
+  await dragBy(divider, 60);
+  const after = await panesAround(divider);
+
+  // Dragging right widens the pane on the left and narrows the one on the
+  // right; between them they still fill the same room.
+  expect(after.before).toBeGreaterThan(before.before + 20);
+  expect(after.after).toBeLessThan(before.after - 20);
+  expect(Math.round(after.before + after.after)).toBe(
+    Math.round(before.before + before.after)
+  );
+});
+
+test("a drag stops rather than crushing a pane out of usable width", async () => {
+  const divider = page.getByRole("separator", {
+    name: "Resize terminal panes",
+  });
+  await expect(divider).toBeVisible({ timeout: 20_000 });
+
+  // Far past the edge of the panel, in one long drag.
+  await dragBy(divider, -4000);
+
+  // The pane being squeezed keeps enough columns to draw a prompt, which is
+  // the whole reason the floor exists.
+  const { before } = await panesAround(divider);
+  expect(before).toBeGreaterThan(120);
 });

@@ -3,6 +3,7 @@ import {
   addTab,
   canSplit,
   focusTerminal,
+  fractionsOf,
   groupsOf,
   leaf,
   MAX_PANES_PER_RUN,
@@ -10,6 +11,7 @@ import {
   paneCount,
   pruneTo,
   removeTerminal,
+  resizeRun,
   runLengthFor,
   splitLeaf,
   terminalIdsOf,
@@ -315,5 +317,99 @@ describe("canSplit across a run", () => {
     // padded prompt can draw, which is the garbling this rule exists to stop.
     expect(canSplit(tall, "vertical", 1)).toBe(true);
     expect(canSplit({ columns: 26, rows: 40 }, "vertical", 2)).toBe(false);
+  });
+});
+
+describe("resizeRun", () => {
+  /** Three panes across, evenly shared until something drags them. */
+  function threeAcross(): PaneNode {
+    return splitLeaf(
+      splitLeaf(leaf("1"), "1", "vertical", "2"),
+      "2",
+      "vertical",
+      "3"
+    );
+  }
+
+  function shares(node: PaneNode): number[] {
+    if (node.kind === "leaf") {
+      throw new Error("not a run");
+    }
+    return fractionsOf(node).map((fraction) => Math.round(fraction * 100));
+  }
+
+  test("a fresh run is shared evenly", () => {
+    expect(shares(threeAcross())).toEqual([33, 33, 33]);
+  });
+
+  test("a drag moves share between the two panes it sits between", () => {
+    const wider = resizeRun(threeAcross(), [], 0, 0.1);
+
+    // The third pane is untouched: a divider is between two panes, and the
+    // rest of the run has no business moving because one of them grew.
+    expect(shares(wider)).toEqual([43, 23, 33]);
+  });
+
+  test("dragging the other way gives the share back", () => {
+    const there = resizeRun(threeAcross(), [], 0, 0.1);
+    const back = resizeRun(there, [], 0, -0.1);
+
+    expect(shares(back)).toEqual([33, 33, 33]);
+  });
+
+  test("refuses a drag that would leave a pane with nothing", () => {
+    const before = threeAcross();
+
+    // Refusing rather than clamping is what makes a drag stop dead at the
+    // limit instead of creeping on while the pointer keeps moving.
+    expect(resizeRun(before, [], 0, 0.9)).toBe(before);
+    expect(resizeRun(before, [], 0, -0.9)).toBe(before);
+  });
+
+  test("there is no divider after the last pane", () => {
+    const before = threeAcross();
+
+    expect(resizeRun(before, [], 2, 0.1)).toBe(before);
+  });
+
+  test("addresses a run that is not there and nothing moves", () => {
+    const before = threeAcross();
+
+    expect(resizeRun(before, [7], 0, 0.1)).toBe(before);
+  });
+
+  test("reaches a divider nested inside another run", () => {
+    // The outer run is vertical; "2" is split into its own horizontal run.
+    const tree = splitLeaf(threeAcross(), "2", "horizontal", "4");
+    // Child 1 of the outer run is the horizontal run holding "2" and "4".
+    const dragged = resizeRun(tree, [1], 0, 0.2);
+
+    expect(dragged).not.toBe(tree);
+    // The outer run keeps its thirds — only the inner divider moved.
+    expect(shares(dragged)).toEqual([33, 33, 33]);
+  });
+
+  test("adding a pane levels the run again", () => {
+    const dragged = resizeRun(
+      splitLeaf(leaf("1"), "1", "vertical", "2"),
+      [],
+      0,
+      0.2
+    );
+    expect(shares(dragged)).toEqual([70, 30]);
+
+    // "Make this three" should answer with thirds, not with the old ratio
+    // squeezed to make room.
+    expect(shares(splitLeaf(dragged, "2", "vertical", "3"))).toEqual([
+      33, 33, 33,
+    ]);
+  });
+
+  test("closing a pane leaves its share to the survivors, by ratio", () => {
+    const dragged = resizeRun(threeAcross(), [], 0, 0.1);
+    const left = removeTerminal(dragged, "2");
+
+    // 43 and 33 of the run remain; they keep their relative sizes.
+    expect(left && shares(left)).toEqual([57, 43]);
   });
 });

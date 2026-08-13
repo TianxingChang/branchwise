@@ -9,6 +9,7 @@ import {
   paneCount,
   pruneTo,
   removeTerminal,
+  resizeRun,
   runLengthFor,
   type SplitOrientation,
   splitLeaf,
@@ -44,6 +45,16 @@ interface TerminalLayoutState {
   openTab: (worktreePath: string, besideTerminalId: string) => string | null;
   /** Replaces the layout with what the main process actually has running. */
   reconcile: (worktreePath: string, ids: string[]) => void;
+  /**
+   * Moves a divider by a fraction of its run. The run is addressed by its
+   * path from the root, the divider by which gap in that run it is.
+   */
+  resize: (
+    worktreePath: string,
+    path: readonly number[],
+    at: number,
+    delta: number
+  ) => void;
   /** Divides a pane in two. Returns the new terminal's id, or null if capped. */
   split: (
     worktreePath: string,
@@ -260,6 +271,21 @@ export const useTerminalStore = create<TerminalLayoutState>()((set, get) => ({
             // has to clear them before it issues anything of its own.
             sequence: Math.max(current?.sequence ?? 0, highestOf(placed)),
           },
+        },
+      };
+    }),
+
+  resize: (worktreePath, path, at, delta) =>
+    set((state) => {
+      const current = stateOf(state.byWorktree, worktreePath);
+      const root = resizeRun(current.root, path, at, delta);
+      if (root === current.root) {
+        return state;
+      }
+      return {
+        byWorktree: {
+          ...state.byWorktree,
+          [worktreePath]: { ...current, root },
         },
       };
     }),

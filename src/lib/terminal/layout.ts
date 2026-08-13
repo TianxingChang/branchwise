@@ -31,6 +31,12 @@ export type PaneNode =
       children: PaneNode[];
       kind: "split";
       orientation: SplitOrientation;
+      /**
+       * One share per child. Only the ratio matters, so they are never
+       * normalised on write — a drag adds to one and takes the same from its
+       * neighbour, and the total stays whatever it was.
+       */
+      weights: number[];
     };
 
 /**
@@ -55,6 +61,28 @@ export const MAX_PANES_PER_RUN = 4;
 
 /** Room lost to each divider between panes. */
 const DIVIDER_CELLS = 1;
+
+/**
+ * The least of a run one pane may be dragged down to.
+ *
+ * A backstop under the divider's own clamp, which works in pixels and is the
+ * one that actually matches MIN_PANE_COLUMNS. This only guarantees that no
+ * path into resizeRun can leave a pane with nothing.
+ */
+const MIN_WEIGHT_SHARE = 0.05;
+
+/** Equal shares, which is what a run is until someone drags a divider. */
+function evenWeights(count: number): number[] {
+  return Array.from({ length: count }, () => 1);
+}
+
+/** Each child's share of its run, as a fraction of the whole. */
+export function fractionsOf(
+  node: Extract<PaneNode, { kind: "split" }>
+): number[] {
+  const total = node.weights.reduce((sum, weight) => sum + weight, 0);
+  return node.weights.map((weight) => weight / total);
+}
 
 /**
  * Whether a pane of this size can give up room for one more beside it.
@@ -132,7 +160,8 @@ function holdsTerminal(node: PaneNode, terminalId: string): boolean {
  */
 function withChildren(
   node: Extract<PaneNode, { kind: "split" }>,
-  children: PaneNode[]
+  children: PaneNode[],
+  weights: number[]
 ): PaneNode | null {
   if (children.length === 0) {
     return null;
@@ -143,7 +172,9 @@ function withChildren(
   const same =
     children.length === node.children.length &&
     children.every((child, at) => child === node.children[at]);
-  return same ? node : { ...node, children };
+  // A closed pane leaves its share behind: the survivors keep the sizes they
+  // were dragged to, and the gap is shared out between them by the ratio.
+  return same ? node : { ...node, children, weights };
 }
 
 /**
@@ -166,19 +197,21 @@ function mapLeafHolding(
   }
 
   const children: PaneNode[] = [];
+  const weights: number[] = [];
   let changed = false;
 
-  for (const child of node.children) {
+  for (const [at, child] of node.children.entries()) {
     const next = mapLeafHolding(child, terminalId, change);
     if (next !== child) {
       changed = true;
     }
     if (next !== null) {
       children.push(next);
+      weights.push(node.weights[at] as number);
     }
   }
 
-  return changed ? withChildren(node, children) : node;
+  return changed ? withChildren(node, children, weights) : node;
 }
 
 /**
@@ -227,7 +260,12 @@ export function splitLeaf(
 ): PaneNode {
   if (node.kind === "leaf") {
     return node.group.terminalIds.includes(terminalId)
-      ? { children: [node, leaf(newTerminalId)], kind: "split", orientation }
+      ? {
+          children: [node, leaf(newTerminalId)],
+          kind: "split",
+          orientation,
+          weights: evenWeights(2),
+        }
       : node;
   }
 
@@ -238,7 +276,10 @@ export function splitLeaf(
     if (at !== -1) {
       const children = [...node.children];
       children.splice(at + 1, 0, leaf(newTerminalId));
-      return { ...node, children };
+      // Adding a pane levels the run. Keeping the old shares and squeezing one
+      // in would answer "make this three" with a half and two quarters, which
+      // is the shape this model exists to avoid.
+      return { ...node, children, weights: evenWeights(children.length) };
     }
   }
 
@@ -337,9 +378,73 @@ export function pruneTo(
     };
   }
 
-  const children = node.children
-    .map((child) => pruneTo(child, alive))
-    .filter((child): child is PaneNode => child !== null);
+  const kept = node.children
+    .map((child, at) => ({ at, child: pruneTo(child, alive) }))
+    .filter(
+      (entry): entry is { at: number; child: PaneNode } => entry.child !== null
+    );
 
-  return withChildren(node, children);
+  return withChildren(
+    node,
+    kept.map((entry) => entry.child),
+    kept.map((entry) => node.weights[entry.at] as number)
+  );
+}
+
+/**
+ * Moves a divider, by a fraction of the run it sits in.
+ *
+ * The run is addressed by its path from the root — the child indices to walk
+ * — and the divider by which gap in that run it is. Naming the pane before it
+ * instead reads better but is ambiguous: a subtree and its leftmost
+ * descendant begin with the same terminal, so "the divider after 2" can mean
+ * two different dividers in a nested layout. Indices cannot be mistaken.
+ *
+ * The two panes either side trade share; nothing else moves. Refusing rather
+ * than clamping at the floor is what makes a drag stop dead at the limit
+ * instead of creeping while the pointer keeps going.
+ */
+export function resizeRun(
+  node: PaneNode,
+  path: readonly number[],
+  at: number,
+  delta: number
+): PaneNode {
+  if (node.kind === "leaf") {
+    return node;
+  }
+
+  if (path.length > 0) {
+    const [head, ...rest] = path;
+    const child = node.children[head as number];
+    if (!child) {
+      return node;
+    }
+    const next = resizeRun(child, rest, at, delta);
+    if (next === child) {
+      return node;
+    }
+    const children = [...node.children];
+    children[head as number] = next;
+    return { ...node, children };
+  }
+
+  if (at < 0 || at >= node.children.length - 1) {
+    return node;
+  }
+
+  const total = node.weights.reduce((sum, weight) => sum + weight, 0);
+  const shift = delta * total;
+  const before = (node.weights[at] as number) + shift;
+  const after = (node.weights[at + 1] as number) - shift;
+  const floor = total * MIN_WEIGHT_SHARE;
+
+  if (before < floor || after < floor) {
+    return node;
+  }
+
+  const weights = [...node.weights];
+  weights[at] = before;
+  weights[at + 1] = after;
+  return { ...node, weights };
 }
