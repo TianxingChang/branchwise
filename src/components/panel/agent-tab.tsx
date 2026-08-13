@@ -1,4 +1,3 @@
-import { Sparkles } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { worktreeDiffSummary } from "@/actions/repo";
 import Composer from "@/components/panel/agent/composer";
@@ -154,18 +153,17 @@ export default function AgentTab({
         </div>
       </div>
 
-      {session.config ? (
-        <div className={cn(MEASURE, "px-3")}>
-          <AgentConfigBar
-            config={session.config}
-            hasConversation={session.hasConversation}
-            onChange={handleConfigChange}
-          />
-        </div>
-      ) : null}
-
       <div className={cn(MEASURE, "px-3 pt-1 pb-3")}>
         <Composer
+          controls={
+            session.config ? (
+              <AgentConfigBar
+                config={session.config}
+                hasConversation={session.hasConversation}
+                onChange={handleConfigChange}
+              />
+            ) : null
+          }
           disabled={running}
           onChange={setDraft}
           onInterrupt={handleInterrupt}
@@ -285,11 +283,8 @@ function EmptyConversation() {
 
 function AssistantText({ text }: { text: string }) {
   return (
-    <div className="flex gap-2">
-      <Sparkles className="mt-1 shrink-0 text-bw-muted" size={13} />
-      <div className="min-w-0 flex-1">
-        <MessageBody text={text} />
-      </div>
+    <div className="min-w-0">
+      <MessageBody text={text} />
     </div>
   );
 }
@@ -302,7 +297,7 @@ function ThinkingDetails({
   text: string;
 }) {
   return (
-    <div className="pl-[21px]">
+    <div>
       <ThinkingTrace running={running} text={text} />
     </div>
   );
@@ -322,7 +317,7 @@ function StreamingMessage({
       {text ? (
         <AssistantText text={text} />
       ) : (
-        <p className="pl-6 text-[12.5px] text-bw-muted">Thinking…</p>
+        <p className="text-[12.5px] text-bw-muted">Thinking…</p>
       )}
       {thinking ? <ThinkingDetails running text={thinking} /> : null}
     </div>
@@ -371,7 +366,7 @@ function ConversationItemRow({
         <AssistantText text={item.text} />
         {item.thinking ? <ThinkingDetails text={item.thinking} /> : null}
         {showCost && item.costUsd !== null ? (
-          <p className="pl-6 text-[10.5px] text-bw-muted">
+          <p className="text-[10.5px] text-bw-muted">
             {formatCost(item.costUsd, item.usage)}
           </p>
         ) : null}

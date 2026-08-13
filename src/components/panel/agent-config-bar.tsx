@@ -65,8 +65,8 @@ export default function AgentConfigBar({
   );
 
   return (
-    <div className="flex items-center gap-3 border-bw-hairline border-t px-3 py-2">
-      <span className="flex items-center gap-1.5 text-[11px] text-bw-muted">
+    <div className="flex min-w-0 items-center gap-2">
+      <span className="flex min-w-0 items-center gap-1 text-[11px] text-bw-muted">
         Backend
         <select
           aria-label="Agent backend"
@@ -83,7 +83,7 @@ export default function AgentConfigBar({
         </select>
       </span>
 
-      <span className="flex items-center gap-1.5 text-[11px] text-bw-muted">
+      <span className="flex min-w-0 items-center gap-1 text-[11px] text-bw-muted">
         Tier
         <select
           aria-label="Permission tier"
