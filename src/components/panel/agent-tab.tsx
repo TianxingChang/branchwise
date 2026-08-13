@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { worktreeDiffSummary } from "@/actions/repo";
 import Composer from "@/components/panel/agent/composer";
-import ConversationPicker from "@/components/panel/agent/conversation-picker";
 import MessageBody from "@/components/panel/agent/message-body";
 import ThinkingTrace from "@/components/panel/agent/thinking-trace";
 import {
@@ -59,10 +58,6 @@ export default function AgentTab({
   const conversations = useAgentTabsStore((state) =>
     conversationsOf(state, worktreePath)
   );
-  const openConversation = useAgentTabsStore((state) => state.open);
-  const focusConversation = useAgentTabsStore((state) => state.focus);
-  const closeConversation = useAgentTabsStore((state) => state.close);
-
   const target = useMemo(
     () => ({ conversationId: conversations.activeId, worktreePath }),
     [conversations.activeId, worktreePath]
@@ -76,8 +71,16 @@ export default function AgentTab({
   const respond = useAgentStore((state) => state.respond);
   const configure = useAgentStore((state) => state.configure);
 
-  const [draft, setDraft] = useState("");
+  const [drafts, setDrafts] = useState<Record<string, string>>({});
+  const draft = drafts[conversations.activeId] ?? "";
   const scrollRef = useRef<HTMLDivElement>(null);
+
+  const setDraft = useCallback(
+    (text: string) => {
+      setDrafts((was) => ({ ...was, [conversations.activeId]: text }));
+    },
+    [conversations.activeId]
+  );
 
   useEffect(() => {
     open(target);
@@ -104,27 +107,7 @@ export default function AgentTab({
     }
     sendMessage(target, draft);
     setDraft("");
-  }, [draft, running, sendMessage, target]);
-
-  const handleNewConversation = useCallback(() => {
-    openConversation(worktreePath);
-    setDraft("");
-  }, [openConversation, worktreePath]);
-
-  const handleFocusConversation = useCallback(
-    (conversationId: string) => {
-      focusConversation(worktreePath, conversationId);
-      setDraft("");
-    },
-    [focusConversation, worktreePath]
-  );
-
-  const handleCloseConversation = useCallback(
-    (conversationId: string) => {
-      closeConversation(worktreePath, conversationId);
-    },
-    [closeConversation, worktreePath]
-  );
+  }, [draft, running, sendMessage, setDraft, target]);
 
   const handleInterrupt = useCallback(() => {
     interrupt(target);
@@ -191,22 +174,13 @@ export default function AgentTab({
       <div className={cn(MEASURE, "px-3 pt-1 pb-3")}>
         <Composer
           controls={
-            <>
-              <ConversationPicker
-                activeId={conversations.activeId}
-                ids={conversations.ids}
-                onClose={handleCloseConversation}
-                onOpen={handleNewConversation}
-                onSelect={handleFocusConversation}
+            session.config ? (
+              <AgentConfigBar
+                config={session.config}
+                hasConversation={session.hasConversation}
+                onChange={handleConfigChange}
               />
-              {session.config ? (
-                <AgentConfigBar
-                  config={session.config}
-                  hasConversation={session.hasConversation}
-                  onChange={handleConfigChange}
-                />
-              ) : null}
-            </>
+            ) : null
           }
           disabled={running}
           onChange={setDraft}

@@ -9,6 +9,7 @@ import {
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { worktreeStatus } from "@/actions/repo";
 import { branchLabel } from "@/components/canvas/branch-node";
+import ConversationTabs from "@/components/panel/agent/conversation-tabs";
 import AgentTab from "@/components/panel/agent-tab";
 import ArtifactTab from "@/components/panel/artifact-tab";
 import DiffTab from "@/components/panel/diff-tab";
@@ -221,6 +222,14 @@ export default function NodePanel({
               />
             ))}
           </nav>
+
+          {/* Only the Agent tab has conversations, so they appear with it and
+              leave with it — and they live here, in the panel's own chrome,
+              rather than inside AgentTab, because that is what lets them share
+              this row instead of adding one below it. */}
+          {panel.tab === "agent" ? (
+            <ConversationTabs worktreePath={node.id} />
+          ) : null}
         </div>
 
         <button
