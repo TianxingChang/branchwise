@@ -1,7 +1,7 @@
-import { Plus, X } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { worktreeDiffSummary } from "@/actions/repo";
 import Composer from "@/components/panel/agent/composer";
+import ConversationPicker from "@/components/panel/agent/conversation-picker";
 import MessageBody from "@/components/panel/agent/message-body";
 import ThinkingTrace from "@/components/panel/agent/thinking-trace";
 import {
@@ -162,14 +162,6 @@ export default function AgentTab({
         projectFolder={projectFolder}
       />
 
-      <ConversationStrip
-        activeId={conversations.activeId}
-        ids={conversations.ids}
-        onClose={handleCloseConversation}
-        onOpen={handleNewConversation}
-        onSelect={handleFocusConversation}
-      />
-
       {session.inherited ? (
         <InheritedBadge inherited={session.inherited} />
       ) : null}
@@ -199,13 +191,22 @@ export default function AgentTab({
       <div className={cn(MEASURE, "px-3 pt-1 pb-3")}>
         <Composer
           controls={
-            session.config ? (
-              <AgentConfigBar
-                config={session.config}
-                hasConversation={session.hasConversation}
-                onChange={handleConfigChange}
+            <>
+              <ConversationPicker
+                activeId={conversations.activeId}
+                ids={conversations.ids}
+                onClose={handleCloseConversation}
+                onOpen={handleNewConversation}
+                onSelect={handleFocusConversation}
               />
-            ) : null
+              {session.config ? (
+                <AgentConfigBar
+                  config={session.config}
+                  hasConversation={session.hasConversation}
+                  onChange={handleConfigChange}
+                />
+              ) : null}
+            </>
           }
           disabled={running}
           onChange={setDraft}
@@ -216,115 +217,6 @@ export default function AgentTab({
           text={draft}
         />
       </div>
-    </div>
-  );
-}
-
-/**
- * The worktree's conversations.
- *
- * Always shown, including the single conversation every branch starts with
- * (user call, 2026-08-13). Hiding it until there were two made the strip
- * appear out of nowhere on the second, and left nothing on screen saying that
- * a conversation is a thing a branch can have more than one of.
- */
-function ConversationStrip({
-  activeId,
-  ids,
-  onClose,
-  onOpen,
-  onSelect,
-}: {
-  activeId: string;
-  ids: string[];
-  onClose: (conversationId: string) => void;
-  onOpen: () => void;
-  onSelect: (conversationId: string) => void;
-}) {
-  return (
-    <div className="flex shrink-0 items-center gap-1 border-bw-hairline border-b px-3 py-1.5">
-      {ids.map((id, at) => (
-        <ConversationChip
-          at={at}
-          // The last one cannot be closed: it owns the history the branch
-          // already had, and the tab always shows a conversation.
-          canClose={ids.length > 1}
-          id={id}
-          isActive={id === activeId}
-          key={id}
-          onClose={onClose}
-          onSelect={onSelect}
-        />
-      ))}
-      <button
-        aria-label="New conversation"
-        className="flex size-5 shrink-0 items-center justify-center rounded-chip text-bw-muted transition-colors duration-150 hover:bg-bw-subtle hover:text-bw-ink"
-        onClick={onOpen}
-        title="New conversation"
-        type="button"
-      >
-        <Plus size={13} />
-      </button>
-    </div>
-  );
-}
-
-function ConversationChip({
-  at,
-  canClose,
-  id,
-  isActive,
-  onClose,
-  onSelect,
-}: {
-  at: number;
-  canClose: boolean;
-  id: string;
-  isActive: boolean;
-  onClose: (conversationId: string) => void;
-  onSelect: (conversationId: string) => void;
-}) {
-  const handleSelect = useCallback(() => {
-    onSelect(id);
-  }, [id, onSelect]);
-
-  const handleClose = useCallback(() => {
-    onClose(id);
-  }, [id, onClose]);
-
-  return (
-    <div
-      className={cn(
-        "group flex h-6 shrink-0 items-center gap-1 rounded-chip pr-0.5 pl-2 transition-colors duration-150",
-        isActive
-          ? "bg-bw-subtle text-bw-ink"
-          : "text-bw-muted hover:bg-bw-subtle/60"
-      )}
-    >
-      <button
-        className="text-[11.5px] focus-visible:outline-none"
-        onClick={handleSelect}
-        type="button"
-      >
-        {/* Numbered by position, not by id: ids never repeat so they climb
-            forever, and "Chat 7" beside "Chat 2" reads as a gap in a list
-            rather than as the two conversations that are open. */}
-        Chat {at + 1}
-      </button>
-      {canClose ? (
-        <button
-          aria-label={`Close chat ${at + 1}`}
-          className="flex size-4 items-center justify-center rounded opacity-0 transition-opacity duration-150 hover:text-bw-ink focus-visible:opacity-100 group-hover:opacity-60"
-          onClick={handleClose}
-          type="button"
-        >
-          <X size={9} strokeWidth={2.5} />
-        </button>
-      ) : (
-        // Keeps the chip the same width whether or not it can be closed, so
-        // opening a second conversation does not shuffle the first sideways.
-        <span aria-hidden="true" className="size-4 shrink-0" />
-      )}
     </div>
   );
 }

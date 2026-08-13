@@ -167,41 +167,62 @@ export default function NodePanel({
         />
       )}
 
-      {/* One row: the branch, what it is measured against, and the numbers
-          that follow from that — parent first, because it is the referent
-          every number after it is relative to.
+      {/*
+        Identity and navigation on one row.
 
-          The worktree's path used to have a row of its own and no longer
-          does. It was not clickable or copyable, it truncated anyway, and the
-          canvas already says which worktree is selected — a whole row spent
-          on something nobody could act on. It is the branch name's tooltip
-          now, which is where you would look for it.
+        They were two, and with the conversation strip beneath them, three —
+        which read as one control with three levels rather than as three
+        unrelated things. The branch, what it is measured against and the
+        numbers that follow sit together as a phrase; the tabs follow; close
+        stays pinned right.
 
-          It wraps rather than truncating the picker away: below about a
-          docked panel's width the name takes the first line and the meta
-          drops beneath it. Close stays pinned to the first line either way. */}
-      <header className="flex items-start gap-2 px-4 py-2.5">
-        <div className="flex min-w-0 flex-1 flex-wrap items-center gap-x-2.5 gap-y-1">
-          <span
-            className="min-w-0 max-w-full truncate font-mono text-[13px] text-bw-ink tracking-tight"
-            title={node.id}
-          >
-            {label}
-          </span>
-          <div className="flex min-w-0 flex-wrap items-center gap-x-2.5 gap-y-1 text-[10.5px] text-bw-muted">
-            <ParentPicker
-              node={node}
-              nodes={nodes}
-              parentBranch={parentBranch}
-              projectFolder={projectFolder}
-            />
-            <NodeStats
-              node={node}
-              parentBranch={parentBranch}
-              projectFolder={projectFolder}
-            />
+        Wrapping, not truncating. Below roughly a docked panel's width the
+        tabs drop to a second line, which is where they used to live anyway —
+        so a narrow panel is no worse than before and a wide one is a row
+        shorter. Truncating instead would have eaten the compared-to picker,
+        the one thing in the identity group worth clicking.
+
+        The worktree's path is the branch name's tooltip. It was a row of its
+        own until it was not clickable, not copyable, truncated anyway, and
+        already answered by whichever node is selected on the canvas.
+      */}
+      <div className="flex items-start gap-2 px-3.5 py-2">
+        <div className="flex min-w-0 flex-1 flex-wrap items-center gap-x-3 gap-y-1.5">
+          <div className="flex min-w-0 items-center gap-x-2.5 gap-y-1">
+            <span
+              className="min-w-0 max-w-full truncate font-mono text-[13px] text-bw-ink tracking-tight"
+              title={node.id}
+            >
+              {label}
+            </span>
+            <div className="flex min-w-0 flex-wrap items-center gap-x-2.5 gap-y-1 text-[10.5px] text-bw-muted">
+              <ParentPicker
+                node={node}
+                nodes={nodes}
+                parentBranch={parentBranch}
+                projectFolder={projectFolder}
+              />
+              <NodeStats
+                node={node}
+                parentBranch={parentBranch}
+                projectFolder={projectFolder}
+              />
+            </div>
           </div>
+
+          <nav className="flex min-w-0 items-center gap-1.5">
+            {PANEL_TABS.map((tab) => (
+              <TabButton
+                isActive={panel.tab === tab}
+                key={tab}
+                onSelect={setPanelTab}
+                projectFolder={projectFolder}
+                tab={tab}
+              />
+            ))}
+          </nav>
         </div>
+
         <button
           aria-label="Hide branch panel"
           className="flex size-6 shrink-0 items-center justify-center rounded-md text-bw-muted transition-colors hover:bg-bw-subtle hover:text-bw-ink"
@@ -210,19 +231,7 @@ export default function NodePanel({
         >
           <X size={13} />
         </button>
-      </header>
-
-      <nav className="flex items-center gap-1.5 px-3.5 pb-1.5">
-        {PANEL_TABS.map((tab) => (
-          <TabButton
-            isActive={panel.tab === tab}
-            key={tab}
-            onSelect={setPanelTab}
-            projectFolder={projectFolder}
-            tab={tab}
-          />
-        ))}
-      </nav>
+      </div>
 
       <div className="min-h-0 flex-1 border-bw-hairline border-t">
         <PanelBody

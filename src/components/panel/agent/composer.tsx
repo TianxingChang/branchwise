@@ -194,10 +194,15 @@ function AttachmentChip({
   return (
     <span className="group relative flex min-w-0 max-w-44 items-center gap-1.5 rounded-control border border-bw-hairline bg-bw-surface py-1 pr-2 pl-1 shadow-btn">
       {attachment.previewUrl ? (
+        // Sized in both places on purpose: the attributes reserve the box
+        // before the image decodes, so a row of chips does not jump as
+        // previews arrive; the class is what actually draws it.
         <img
           alt=""
           className="size-6 shrink-0 rounded-chip object-cover"
+          height={24}
           src={attachment.previewUrl}
+          width={24}
         />
       ) : (
         <span className="flex size-6 shrink-0 items-center justify-center rounded-chip bg-bw-subtle font-mono text-[8.5px] text-bw-muted uppercase">
