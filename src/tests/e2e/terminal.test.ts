@@ -437,3 +437,39 @@ test("dragging the panel edge does not leave a stack of prompts behind", async (
   // instead of replacing each other.
   expect(await filledRows()).toBeLessThanOrEqual(before + 2);
 });
+
+test("the terminal reflows while the panel edge is still being dragged", async () => {
+  await expect(panes().first()).toBeVisible({ timeout: 20_000 });
+  await page.waitForTimeout(400);
+
+  /** The width xterm has laid itself out for, not the width of its container. */
+  const laidOutWidth = () =>
+    page
+      .locator(".xterm-rows")
+      .first()
+      .evaluate((rows) => Math.round(rows.getBoundingClientRect().width));
+
+  const before = await laidOutWidth();
+
+  const grip = page.getByRole("separator", { name: "Resize panel" });
+  const box = await grip.boundingBox();
+  if (!box) {
+    throw new Error("the panel grip is not on screen");
+  }
+  const y = box.y + box.height / 2;
+  await page.mouse.move(box.x + box.width / 2, y);
+  await page.mouse.down();
+  await page.mouse.move(box.x - 180, y, { steps: 20 });
+
+  // Still holding the button: the terminal must already have re-laid itself
+  // out. Fitting is local and signals nothing, so it can run every frame —
+  // only the message to the pty is held back to the ends of the drag.
+  await page.waitForTimeout(120);
+  const during = await laidOutWidth();
+
+  await page.mouse.up();
+  await page.waitForTimeout(400);
+
+  expect(during).toBeGreaterThan(before + 60);
+  expect(await laidOutWidth()).toBe(during);
+});

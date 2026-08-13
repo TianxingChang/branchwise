@@ -125,7 +125,14 @@ export default function TerminalSurface({
     const controller = new AbortController();
     let disposed = false;
 
-    const measure = () => {
+    /**
+     * Lays the terminal out for the room it has.
+     *
+     * Purely local — it reflows what is already on screen and tells the layout
+     * how many cells fit. Nothing reaches the shell from here, which is what
+     * lets it run on every frame of a drag while the pty hears once.
+     */
+    const fitToPane = () => {
       try {
         fit.fit();
       } catch {
@@ -136,7 +143,7 @@ export default function TerminalSurface({
       return next;
     };
 
-    const initial = measure();
+    const initial = fitToPane();
 
     const typed = term.onData((data) => {
       writeToTerminal(target, data).catch(() => undefined);
@@ -148,7 +155,9 @@ export default function TerminalSurface({
     let told = initial;
 
     const tellTheShell = () => {
-      const next = measure();
+      // Reads the size the last fit settled on rather than fitting again: by
+      // the time this runs the pane is already laid out for its new room.
+      const next = { columns: term.cols, rows: term.rows };
       if (next.columns < 2 || next.rows < 1) {
         return;
       }
@@ -161,15 +170,17 @@ export default function TerminalSurface({
       resizeTerminal(target, next).catch(() => undefined);
     };
 
-    // Once at the start of a burst, once when it ends, and nothing in between.
+    // The pane follows the pointer; the shell hears once at the start of a
+    // burst and once when it ends.
     //
-    // Dragging the panel edge crosses dozens of column boundaries on the way,
-    // and each crossing is a real SIGWINCH that makes a themed prompt redraw
-    // itself — which is how a drag used to leave a stack of prompts behind.
-    // Waiting for the burst to end would fix that and break the other case:
-    // splitting a pane is a single change, and delaying it leaves the shell
-    // drawing at the old width in a pane that has already been halved.
+    // Those are separate costs and only one of them hurts. Re-laying out the
+    // terminal is local: it reflows what is on screen and signals nobody.
+    // Telling the pty is a real SIGWINCH, and a themed prompt redraws itself
+    // on every one — dozens of column boundaries in one drag is how it used
+    // to leave a stack of prompts behind. So the fit runs on every tick and
+    // the message does not.
     const observer = new ResizeObserver(() => {
+      fitToPane();
       clearTimeout(settle);
       if (!mid) {
         mid = true;
