@@ -3,11 +3,7 @@ import { Check, GitBranch, Lock, Plus, Trash2, Unlink } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { NODE_HEIGHT, NODE_WIDTH } from "@/lib/branch/layout";
 import { detachedLabel } from "@/lib/git/naming";
-import {
-  agentActivity,
-  selectSession,
-  useAgentStore,
-} from "@/stores/agent-store";
+import { useAgentStore, worktreeActivity } from "@/stores/agent-store";
 import type { CanvasNode } from "@/types/branch";
 import { cn } from "@/utils/tailwind";
 
@@ -95,8 +91,13 @@ function BranchCard({
     [onStartChild]
   );
 
-  const session = useAgentStore((state) => selectSession(state, node.id));
-  const activity = useMemo(() => agentActivity(session), [session]);
+  // Across every conversation the branch holds, not just the first: a node
+  // must not look idle while a second conversation waits on a permission.
+  const sessions = useAgentStore((state) => state.sessions);
+  const activity = useMemo(
+    () => worktreeActivity(sessions, node.id),
+    [node.id, sessions]
+  );
 
   return (
     <div className="relative" style={CARD_SIZE}>

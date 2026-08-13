@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { Plus, X } from "lucide-react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { worktreeDiffSummary } from "@/actions/repo";
 import Composer from "@/components/panel/agent/composer";
 import MessageBody from "@/components/panel/agent/message-body";
@@ -15,6 +16,7 @@ import {
   selectSession,
   useAgentStore,
 } from "@/stores/agent-store";
+import { conversationsOf, useAgentTabsStore } from "@/stores/agent-tabs-store";
 import { useRepoStore } from "@/stores/repo-store";
 import type { AgentConfig, AgentUsage } from "@/types/agent";
 import type { DiffSummary } from "@/types/diff";
@@ -53,7 +55,19 @@ export default function AgentTab({
   projectFolder,
   worktreePath,
 }: AgentTabProps) {
-  const session = useAgentStore((state) => selectSession(state, worktreePath));
+  const conversations = useAgentTabsStore((state) =>
+    conversationsOf(state, worktreePath)
+  );
+  const openConversation = useAgentTabsStore((state) => state.open);
+  const focusConversation = useAgentTabsStore((state) => state.focus);
+  const closeConversation = useAgentTabsStore((state) => state.close);
+
+  const target = useMemo(
+    () => ({ conversationId: conversations.activeId, worktreePath }),
+    [conversations.activeId, worktreePath]
+  );
+
+  const session = useAgentStore((state) => selectSession(state, target));
   const open = useAgentStore((state) => state.open);
   const close = useAgentStore((state) => state.close);
   const sendMessage = useAgentStore((state) => state.sendMessage);
@@ -65,9 +79,9 @@ export default function AgentTab({
   const scrollRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    open(worktreePath);
-    return () => close(worktreePath);
-  }, [close, open, worktreePath]);
+    open(target);
+    return () => close(target);
+  }, [close, open, target]);
 
   const { conversation } = session;
   const running = conversation.activeTurnId !== null;
@@ -87,26 +101,46 @@ export default function AgentTab({
     if (draft.trim().length === 0 || running) {
       return;
     }
-    sendMessage(worktreePath, draft);
+    sendMessage(target, draft);
     setDraft("");
-  }, [draft, running, sendMessage, worktreePath]);
+  }, [draft, running, sendMessage, target]);
+
+  const handleNewConversation = useCallback(() => {
+    openConversation(worktreePath);
+    setDraft("");
+  }, [openConversation, worktreePath]);
+
+  const handleFocusConversation = useCallback(
+    (conversationId: string) => {
+      focusConversation(worktreePath, conversationId);
+      setDraft("");
+    },
+    [focusConversation, worktreePath]
+  );
+
+  const handleCloseConversation = useCallback(
+    (conversationId: string) => {
+      closeConversation(worktreePath, conversationId);
+    },
+    [closeConversation, worktreePath]
+  );
 
   const handleInterrupt = useCallback(() => {
-    interrupt(worktreePath);
-  }, [interrupt, worktreePath]);
+    interrupt(target);
+  }, [interrupt, target]);
 
   const handleRespond = useCallback(
     (requestId: string, approved: boolean) => {
-      respond(worktreePath, requestId, approved);
+      respond(target, requestId, approved);
     },
-    [respond, worktreePath]
+    [respond, target]
   );
 
   const handleConfigChange = useCallback(
     (config: AgentConfig) => {
-      configure(worktreePath, config);
+      configure(target, config);
     },
-    [configure, worktreePath]
+    [configure, target]
   );
 
   const hasContent = conversation.items.length > 0 || running;
@@ -125,6 +159,14 @@ export default function AgentTab({
         nodeId={worktreePath}
         parentBranch={parentBranch}
         projectFolder={projectFolder}
+      />
+
+      <ConversationStrip
+        activeId={conversations.activeId}
+        ids={conversations.ids}
+        onClose={handleCloseConversation}
+        onOpen={handleNewConversation}
+        onSelect={handleFocusConversation}
       />
 
       {session.inherited ? (
@@ -173,6 +215,105 @@ export default function AgentTab({
           text={draft}
         />
       </div>
+    </div>
+  );
+}
+
+/**
+ * The worktree's conversations.
+ *
+ * Shown only once there is more than one, plus the button that makes the
+ * second: a branch with a single conversation is the common case, and a strip
+ * of one tab is a row of chrome that says nothing.
+ */
+function ConversationStrip({
+  activeId,
+  ids,
+  onClose,
+  onOpen,
+  onSelect,
+}: {
+  activeId: string;
+  ids: string[];
+  onClose: (conversationId: string) => void;
+  onOpen: () => void;
+  onSelect: (conversationId: string) => void;
+}) {
+  return (
+    <div className="flex shrink-0 items-center gap-1 border-bw-hairline border-b px-3 py-1.5">
+      {ids.length > 1
+        ? ids.map((id, at) => (
+            <ConversationChip
+              at={at}
+              id={id}
+              isActive={id === activeId}
+              key={id}
+              onClose={onClose}
+              onSelect={onSelect}
+            />
+          ))
+        : null}
+      <button
+        aria-label="New conversation"
+        className="flex size-5 shrink-0 items-center justify-center rounded-chip text-bw-muted transition-colors duration-150 hover:bg-bw-subtle hover:text-bw-ink"
+        onClick={onOpen}
+        title="New conversation"
+        type="button"
+      >
+        <Plus size={13} />
+      </button>
+    </div>
+  );
+}
+
+function ConversationChip({
+  at,
+  id,
+  isActive,
+  onClose,
+  onSelect,
+}: {
+  at: number;
+  id: string;
+  isActive: boolean;
+  onClose: (conversationId: string) => void;
+  onSelect: (conversationId: string) => void;
+}) {
+  const handleSelect = useCallback(() => {
+    onSelect(id);
+  }, [id, onSelect]);
+
+  const handleClose = useCallback(() => {
+    onClose(id);
+  }, [id, onClose]);
+
+  return (
+    <div
+      className={cn(
+        "group flex h-6 shrink-0 items-center gap-1 rounded-chip pr-0.5 pl-2 transition-colors duration-150",
+        isActive
+          ? "bg-bw-subtle text-bw-ink"
+          : "text-bw-muted hover:bg-bw-subtle/60"
+      )}
+    >
+      <button
+        className="text-[11.5px] focus-visible:outline-none"
+        onClick={handleSelect}
+        type="button"
+      >
+        {/* Numbered by position, not by id: ids never repeat so they climb
+            forever, and "Chat 7" beside "Chat 2" reads as a gap in a list
+            rather than as the two conversations that are open. */}
+        Chat {at + 1}
+      </button>
+      <button
+        aria-label={`Close chat ${at + 1}`}
+        className="flex size-4 items-center justify-center rounded opacity-0 transition-opacity duration-150 hover:text-bw-ink focus-visible:opacity-100 group-hover:opacity-60"
+        onClick={handleClose}
+        type="button"
+      >
+        <X size={9} strokeWidth={2.5} />
+      </button>
     </div>
   );
 }

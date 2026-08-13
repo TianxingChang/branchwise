@@ -21,6 +21,7 @@ import BranchNodeCard, {
 import DeleteDialog, {
   type DeleteChoice,
 } from "@/components/canvas/delete-dialog";
+import { FIRST_CONVERSATION } from "@/lib/agent/identity";
 import { layoutTree, NODE_HEIGHT, NODE_WIDTH } from "@/lib/branch/layout";
 import { useRepoStore } from "@/stores/repo-store";
 import type { CanvasNode, ParentSource } from "@/types/branch";
@@ -125,7 +126,10 @@ function CanvasInner({ nodes, projectFolder, selectedId }: BranchCanvasProps) {
       })
       .catch(() => undefined);
 
-    getAgentConfig(parent.id)
+    getAgentConfig({
+      conversationId: FIRST_CONVERSATION,
+      worktreePath: parent.id,
+    })
       .then((config) => {
         if (active) {
           setParentHasConversation(config.hasConversation);

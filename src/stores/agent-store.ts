@@ -1,4 +1,5 @@
 import { create } from "zustand";
+import type { AgentTarget } from "@/actions/agent";
 import {
   agentHistory,
   attachAgent,
@@ -13,6 +14,7 @@ import {
   emptyConversation,
   foldEvent,
 } from "@/lib/agent/fold";
+import { agentKey, worktreeOfKey } from "@/lib/agent/identity";
 import type { AgentConfig, AgentEvent } from "@/types/agent";
 
 /** What a worktree's first turn was seeded from, for the badge in AgentTab. */
@@ -72,59 +74,67 @@ export function trimToLastTurnDone(events: AgentEvent[]): AgentEvent[] {
 }
 
 interface AgentStoreState {
-  close: (worktreePath: string) => void;
-  configure: (worktreePath: string, config: AgentConfig) => Promise<void>;
-  interrupt: (worktreePath: string) => Promise<void>;
-  open: (worktreePath: string) => Promise<void>;
+  close: (target: AgentTarget) => void;
+  configure: (target: AgentTarget, config: AgentConfig) => Promise<void>;
+  interrupt: (target: AgentTarget) => Promise<void>;
+  open: (target: AgentTarget) => Promise<void>;
   reset: () => void;
   respond: (
-    worktreePath: string,
+    target: AgentTarget,
     requestId: string,
     approved: boolean
   ) => Promise<void>;
-  sendMessage: (worktreePath: string, text: string) => Promise<void>;
+  sendMessage: (target: AgentTarget, text: string) => Promise<void>;
+  /** Keyed by conversation, so a worktree can hold several at once. */
   sessions: Record<string, AgentSession>;
+}
+
+/** The store's key for a target — the same one the main process files it under. */
+function keyOf(target: AgentTarget): string {
+  return agentKey(target.worktreePath, target.conversationId);
 }
 
 const controllers = new Map<string, AbortController>();
 
 export const useAgentStore = create<AgentStoreState>()((set) => {
   function patch(
-    worktreePath: string,
+    key: string,
     update: (session: AgentSession) => AgentSession
   ): void {
     set((state) => ({
       sessions: {
         ...state.sessions,
-        [worktreePath]: update(state.sessions[worktreePath] ?? EMPTY_SESSION),
+        [key]: update(state.sessions[key] ?? EMPTY_SESSION),
       },
     }));
   }
 
   return {
-    close: (worktreePath) => {
-      controllers.get(worktreePath)?.abort();
-      controllers.delete(worktreePath);
-      patch(worktreePath, (session) => ({ ...session, attached: false }));
+    close: (target) => {
+      const key = keyOf(target);
+      controllers.get(key)?.abort();
+      controllers.delete(key);
+      patch(key, (session) => ({ ...session, attached: false }));
     },
 
-    configure: async (worktreePath, config) => {
-      await actions.setAgentConfig(worktreePath, config);
-      patch(worktreePath, (session) => ({ ...session, config }));
+    configure: async (target, config) => {
+      await actions.setAgentConfig(target, config);
+      patch(keyOf(target), (session) => ({ ...session, config }));
     },
 
-    interrupt: async (worktreePath) => {
-      await actions.interruptAgent(worktreePath);
+    interrupt: async (target) => {
+      await actions.interruptAgent(target);
     },
 
-    open: async (worktreePath) => {
-      controllers.get(worktreePath)?.abort();
+    open: async (target) => {
+      const key = keyOf(target);
+      controllers.get(key)?.abort();
       const controller = new AbortController();
-      controllers.set(worktreePath, controller);
+      controllers.set(key, controller);
 
       const [meta, history] = await Promise.all([
-        actions.getAgentConfig(worktreePath),
-        actions.agentHistory(worktreePath),
+        actions.getAgentConfig(target),
+        actions.agentHistory(target),
       ]);
       if (controller.signal.aborted) {
         return;
@@ -133,7 +143,7 @@ export const useAgentStore = create<AgentStoreState>()((set) => {
         foldEvent,
         emptyConversation()
       );
-      patch(worktreePath, () => ({
+      patch(key, () => ({
         attached: true,
         config: meta.config,
         conversation: folded,
@@ -141,7 +151,7 @@ export const useAgentStore = create<AgentStoreState>()((set) => {
         inherited: meta.inherited,
       }));
 
-      const stream = await actions.attachAgent(worktreePath, controller.signal);
+      const stream = await actions.attachAgent(target, controller.signal);
       if (controller.signal.aborted) {
         return;
       }
@@ -151,7 +161,7 @@ export const useAgentStore = create<AgentStoreState>()((set) => {
             if (controller.signal.aborted) {
               return;
             }
-            patch(worktreePath, (session) => ({
+            patch(key, (session) => ({
               ...session,
               conversation: foldEvent(session.conversation, event),
               hasConversation: true,
@@ -171,16 +181,12 @@ export const useAgentStore = create<AgentStoreState>()((set) => {
       set({ sessions: {} });
     },
 
-    respond: async (worktreePath, requestId, approved) => {
-      await actions.respondAgentPermission({
-        approved,
-        requestId,
-        worktreePath,
-      });
+    respond: async (target, requestId, approved) => {
+      await actions.respondAgentPermission({ ...target, approved, requestId });
     },
 
-    sendMessage: async (worktreePath, text) => {
-      await actions.sendAgentMessage(worktreePath, text);
+    sendMessage: async (target, text) => {
+      await actions.sendAgentMessage(target, text);
     },
 
     sessions: {},
@@ -189,9 +195,39 @@ export const useAgentStore = create<AgentStoreState>()((set) => {
 
 export function selectSession(
   state: AgentStoreState,
-  worktreePath: string
+  target: AgentTarget
 ): AgentSession {
-  return state.sessions[worktreePath] ?? EMPTY_SESSION;
+  return state.sessions[keyOf(target)] ?? EMPTY_SESSION;
+}
+
+/**
+ * What a worktree's node should show, across every conversation it holds.
+ *
+ * A branch is busy if any of its conversations is, and wants attention if any
+ * of them is waiting on a permission — reading only the first would leave a
+ * node looking idle while its second conversation blocks on a question.
+ *
+ * Takes the sessions record rather than the store so it can be memoised on it.
+ * As a selector it would build a fresh object on every call, which never
+ * matches the previous one by identity and re-renders the caller forever.
+ */
+export function worktreeActivity(
+  sessions: Record<string, AgentSession>,
+  worktreePath: string
+): { needsPermission: boolean; running: boolean } {
+  let needsPermission = false;
+  let running = false;
+
+  for (const [key, session] of Object.entries(sessions)) {
+    if (worktreeOfKey(key) !== worktreePath) {
+      continue;
+    }
+    const activity = agentActivity(session);
+    needsPermission = needsPermission || activity.needsPermission;
+    running = running || activity.running;
+  }
+
+  return { needsPermission, running };
 }
 
 /** Node-badge derivation; replaces countTasks. */

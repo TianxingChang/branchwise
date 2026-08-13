@@ -820,7 +820,9 @@ describe("agent session manager", () => {
     expect(prepared.ok).toBe(true);
     expect(await readPendingInheritance(base, CHILD_WT)).not.toBeNull();
 
-    expect((await send(CHILD_WT, CHILD_WT, "Please continue.")).accepted).toBe(true);
+    expect((await send(CHILD_WT, CHILD_WT, "Please continue.")).accepted).toBe(
+      true
+    );
     const prompt = puppet.input()?.prompt ?? "";
     // Starts with the brief (its heading names the parent label)...
     expect(prompt.startsWith("# feat/parent")).toBe(true);
@@ -896,7 +898,9 @@ describe("agent session manager", () => {
       (await loadRegistry(base)).worktrees[CHILD_WT]?.inherited?.mode
     ).toBe("full");
 
-    expect((await send(CHILD_WT, CHILD_WT, "Please continue.")).accepted).toBe(true);
+    expect((await send(CHILD_WT, CHILD_WT, "Please continue.")).accepted).toBe(
+      true
+    );
     expect(puppet.input()?.resume).toEqual({
       fork: true,
       sessionId: "parent-s1",
@@ -979,7 +983,9 @@ describe("agent session manager", () => {
       "claude-code"
     );
 
-    expect((await send(CHILD_WT, CHILD_WT, "Please continue.")).accepted).toBe(true);
+    expect((await send(CHILD_WT, CHILD_WT, "Please continue.")).accepted).toBe(
+      true
+    );
     const input = puppet.input();
     expect(input?.inject).toBeUndefined();
     // The fork precondition never engaged: no `fork` key at all, sessionId
