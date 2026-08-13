@@ -535,6 +535,7 @@ function applyPendingInheritance(
 }
 
 export async function send(
+  key: string,
   worktreePath: string,
   text: string
 ): Promise<{ accepted: boolean; reason?: string }> {
@@ -545,13 +546,13 @@ export async function send(
   if (shuttingDown) {
     return { accepted: false, reason: "branchwise is shutting down." };
   }
-  if (turns.has(worktreePath)) {
+  if (turns.has(key)) {
     return { accepted: false, reason: "A turn is already running." };
   }
   // Synchronous reservation BEFORE any await: two sends racing through the
   // fs reads below must not both reach startTurn — the loser's agent would
   // run unreachable by interrupt or shutdown, billing into the void.
-  turns.set(worktreePath, RESERVED_TURN);
+  turns.set(key, RESERVED_TURN);
 
   let handle: AgentTurnHandle;
   // Hoisted above the try (matching `handle`) so the fire-and-forget clear
@@ -563,17 +564,17 @@ export async function send(
   try {
     dir = await baseDir();
     const registry = await loadRegistry(dir);
-    const entry = registry.worktrees[worktreePath];
+    const entry = registry.worktrees[key];
     const config: AgentConfig = entry
       ? { driverId: entry.driverId, tier: entry.tier }
       : { driverId: registry.lastDriverId, tier: "accept-edits" };
     if (!entry) {
-      await setConfig(worktreePath, config);
+      await setConfig(key, config);
     }
 
     // Consume-on-first-send: a pending inheritance (prepareInheritance)
     // reshapes this turn's prompt/resume/inject exactly once.
-    pending = await readPendingInheritance(dir, worktreePath);
+    pending = await readPendingInheritance(dir, key);
     const { prompt, resume, inject } = applyPendingInheritance(
       pending,
       trimmed,
@@ -584,13 +585,13 @@ export async function send(
     const driver = await driverFor(config.driverId);
     handle = driver.startTurn({
       inject,
-      onSessionId: (id) => persistIds(worktreePath, { sessionId: id }),
-      onThreadId: (id) => persistIds(worktreePath, { threadId: id }),
+      onSessionId: (id) => persistIds(key, { sessionId: id }),
+      onThreadId: (id) => persistIds(key, { threadId: id }),
       prompt,
       requestPermission: (request) =>
         new Promise<boolean>((resolve) => {
-          const forWorktree = pendingPermissions.get(worktreePath) ?? new Map();
-          pendingPermissions.set(worktreePath, forWorktree);
+          const forWorktree = pendingPermissions.get(key) ?? new Map();
+          pendingPermissions.set(key, forWorktree);
           // The manager owns the permission EVENTS for both vendors: the
           // Claude SDK's callback cannot yield into its adapter's stream at
           // all, and every settle path (answer, timeout, interrupt, crash)
@@ -598,7 +599,7 @@ export async function send(
           // its resolution reliably reach the transcript and the UI. Fire
           // and forget with a catch: nothing here can `await` from inside a
           // Promise executor or a timer callback.
-          enqueueEmit(worktreePath, {
+          enqueueEmit(key, {
             detail: request.detail,
             kind: "permission-request",
             requestId: request.requestId,
@@ -606,7 +607,7 @@ export async function send(
           }).catch(() => undefined);
           const settle = (approved: boolean): void => {
             resolve(approved);
-            enqueueEmit(worktreePath, {
+            enqueueEmit(key, {
               approved,
               kind: "permission-resolved",
               requestId: request.requestId,
@@ -620,11 +621,13 @@ export async function send(
         }),
       resume,
       tier: config.tier,
+      // The one real directory in here: everything else names the
+      // conversation, but the agent has to run somewhere.
       worktreePath,
     });
   } catch (error) {
     // The reservation must not outlive a failed start.
-    turns.delete(worktreePath);
+    turns.delete(key);
     return {
       accepted: false,
       reason:
@@ -638,7 +641,7 @@ export async function send(
     pendingDeltas: [],
     timer: null,
   };
-  turns.set(worktreePath, turn); // replaces the reservation
+  turns.set(key, turn); // replaces the reservation
 
   if (pending) {
     // Fire-and-forget, deliberately decoupled from the try/catch above: the
@@ -650,37 +653,37 @@ export async function send(
     // force:true only swallows ENOENT; EBUSY/EPERM etc. still throw here.
     // Worst case on a genuine fs error, the NEXT send() re-reads and
     // re-consumes this same still-valid pending file.
-    clearPendingInheritance(dir, worktreePath).catch(() => undefined);
+    clearPendingInheritance(dir, key).catch(() => undefined);
   }
 
-  await enqueueEmit(worktreePath, { kind: "user-message", text: trimmed });
+  await enqueueEmit(key, { kind: "user-message", text: trimmed });
 
   (async () => {
     try {
       for await (const event of handle.events) {
-        const live = turns.get(worktreePath);
+        const live = turns.get(key);
         if (live !== turn) {
           return; // superseded (shutdown raced a stream tail)
         }
         if (event.kind === "text-delta" || event.kind === "thinking-delta") {
           pushDelta(turn, event);
-          scheduleFlush(worktreePath);
+          scheduleFlush(key);
           continue;
         }
-        await flushDeltas(worktreePath);
-        await enqueueEmit(worktreePath, event);
+        await flushDeltas(key);
+        await enqueueEmit(key, event);
         if (event.kind === "turn-done") {
-          turns.delete(worktreePath);
+          turns.delete(key);
         }
       }
     } catch (error) {
-      await flushDeltas(worktreePath);
-      await reportStreamFailure(worktreePath, turn, error);
+      await flushDeltas(key);
+      await reportStreamFailure(key, turn, error);
     } finally {
       // Backstop: a stream that ends without a terminal event, and the
       // crash/error path above, both free the slot; no parked permission
       // waits out its five minutes against a dead turn.
-      closeTurnIfLive(worktreePath, turn);
+      closeTurnIfLive(key, turn);
     }
   })().catch(() => undefined);
   // The catch above guards the pump itself: if the catch/finally blocks

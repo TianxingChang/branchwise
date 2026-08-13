@@ -1,5 +1,6 @@
 import { eventIterator, os } from "@orpc/server";
 import { z } from "zod";
+import { agentKey, FIRST_CONVERSATION } from "@/lib/agent/identity";
 import { agentConfigSchema, agentEventSchema } from "@/types/agent";
 import {
   attachAgent,
@@ -13,7 +14,25 @@ import {
   setConfig,
 } from "./manager";
 
-const worktreeInput = z.object({ worktreePath: z.string().min(1) });
+/**
+ * Which conversation, in which worktree.
+ *
+ * The id is optional so that anything still sending only a path lands on the
+ * conversation the worktree has always had, whose key is that bare path — the
+ * same compatibility rule agentKey applies.
+ */
+const worktreeInput = z.object({
+  conversationId: z.string().min(1).max(64).default(FIRST_CONVERSATION),
+  worktreePath: z.string().min(1),
+});
+
+/** The session key for a request. */
+function keyOf(input: {
+  conversationId: string;
+  worktreePath: string;
+}): string {
+  return agentKey(input.worktreePath, input.conversationId);
+}
 
 /**
  * Streams one worktree's agent conversation: what already happened in the
@@ -24,7 +43,7 @@ export const attach = os
   .input(worktreeInput)
   .output(eventIterator(agentEventSchema))
   .handler(async function* ({ input, signal }) {
-    const { queue, replay } = attachAgent(input.worktreePath);
+    const { queue, replay } = attachAgent(keyOf(input));
     try {
       for (const event of replay) {
         yield event;
@@ -33,20 +52,20 @@ export const attach = os
         yield event;
       }
     } finally {
-      detachAgent(input.worktreePath, queue);
+      detachAgent(keyOf(input), queue);
     }
   });
 
 export const sendMessage = os
   .input(worktreeInput.extend({ text: z.string() }))
   .output(z.object({ accepted: z.boolean(), reason: z.string().optional() }))
-  .handler(({ input }) => send(input.worktreePath, input.text));
+  .handler(({ input }) => send(keyOf(input), input.worktreePath, input.text));
 
 export const interrupt = os
   .input(worktreeInput)
   .output(z.object({ ok: z.literal(true) }))
   .handler(async ({ input }) => {
-    await interruptTurn(input.worktreePath);
+    await interruptTurn(keyOf(input));
     return { ok: true as const };
   });
 
@@ -59,7 +78,7 @@ export const respondPermissionRoute = os
   )
   .output(z.object({ ok: z.boolean() }))
   .handler(({ input }) => ({
-    ok: respondPermission(input.worktreePath, input.requestId, input.approved),
+    ok: respondPermission(keyOf(input), input.requestId, input.approved),
   }));
 
 export const getAgentConfig = os
@@ -80,7 +99,7 @@ export const getAgentConfig = os
     })
   )
   .handler(async ({ input }) => {
-    const result = await getConfig(input.worktreePath);
+    const result = await getConfig(keyOf(input));
     return {
       config: result.config,
       hasConversation: result.hasConversation,
@@ -93,7 +112,7 @@ export const setAgentConfig = os
   .input(worktreeInput.extend({ config: agentConfigSchema }))
   .output(z.object({ ok: z.literal(true) }))
   .handler(async ({ input }) => {
-    await setConfig(input.worktreePath, input.config);
+    await setConfig(keyOf(input), input.config);
     return { ok: true as const };
   });
 
@@ -119,4 +138,4 @@ export const prepareInheritanceRoute = os
 export const history = os
   .input(worktreeInput)
   .output(z.array(agentEventSchema))
-  .handler(({ input }) => readHistory(input.worktreePath));
+  .handler(({ input }) => readHistory(keyOf(input)));
