@@ -38,7 +38,7 @@ import { cn } from "@/utils/tailwind";
 const MEASURE = "mx-auto w-full max-w-[36rem]";
 
 /** The transcript reads at its own scale; see --bw-prose-size in global.css. */
-const PROSE_SCALE = "[--bw-prose-size:13.5px]";
+const PROSE_SCALE = "[--bw-prose-size:14.5px]";
 
 interface AgentTabProps {
   branchLabel: string;
@@ -222,9 +222,10 @@ export default function AgentTab({
 /**
  * The worktree's conversations.
  *
- * Shown only once there is more than one, plus the button that makes the
- * second: a branch with a single conversation is the common case, and a strip
- * of one tab is a row of chrome that says nothing.
+ * Always shown, including the single conversation every branch starts with
+ * (user call, 2026-08-13). Hiding it until there were two made the strip
+ * appear out of nowhere on the second, and left nothing on screen saying that
+ * a conversation is a thing a branch can have more than one of.
  */
 function ConversationStrip({
   activeId,
@@ -241,18 +242,19 @@ function ConversationStrip({
 }) {
   return (
     <div className="flex shrink-0 items-center gap-1 border-bw-hairline border-b px-3 py-1.5">
-      {ids.length > 1
-        ? ids.map((id, at) => (
-            <ConversationChip
-              at={at}
-              id={id}
-              isActive={id === activeId}
-              key={id}
-              onClose={onClose}
-              onSelect={onSelect}
-            />
-          ))
-        : null}
+      {ids.map((id, at) => (
+        <ConversationChip
+          at={at}
+          // The last one cannot be closed: it owns the history the branch
+          // already had, and the tab always shows a conversation.
+          canClose={ids.length > 1}
+          id={id}
+          isActive={id === activeId}
+          key={id}
+          onClose={onClose}
+          onSelect={onSelect}
+        />
+      ))}
       <button
         aria-label="New conversation"
         className="flex size-5 shrink-0 items-center justify-center rounded-chip text-bw-muted transition-colors duration-150 hover:bg-bw-subtle hover:text-bw-ink"
@@ -268,12 +270,14 @@ function ConversationStrip({
 
 function ConversationChip({
   at,
+  canClose,
   id,
   isActive,
   onClose,
   onSelect,
 }: {
   at: number;
+  canClose: boolean;
   id: string;
   isActive: boolean;
   onClose: (conversationId: string) => void;
@@ -306,14 +310,20 @@ function ConversationChip({
             rather than as the two conversations that are open. */}
         Chat {at + 1}
       </button>
-      <button
-        aria-label={`Close chat ${at + 1}`}
-        className="flex size-4 items-center justify-center rounded opacity-0 transition-opacity duration-150 hover:text-bw-ink focus-visible:opacity-100 group-hover:opacity-60"
-        onClick={handleClose}
-        type="button"
-      >
-        <X size={9} strokeWidth={2.5} />
-      </button>
+      {canClose ? (
+        <button
+          aria-label={`Close chat ${at + 1}`}
+          className="flex size-4 items-center justify-center rounded opacity-0 transition-opacity duration-150 hover:text-bw-ink focus-visible:opacity-100 group-hover:opacity-60"
+          onClick={handleClose}
+          type="button"
+        >
+          <X size={9} strokeWidth={2.5} />
+        </button>
+      ) : (
+        // Keeps the chip the same width whether or not it can be closed, so
+        // opening a second conversation does not shuffle the first sideways.
+        <span aria-hidden="true" className="size-4 shrink-0" />
+      )}
     </div>
   );
 }
@@ -494,7 +504,7 @@ function ConversationItemRow({
   if (item.kind === "user") {
     return (
       <div className="flex justify-end">
-        <p className="max-w-[85%] whitespace-pre-wrap rounded-card bg-bw-subtle px-3 py-2 text-[13.5px] text-bw-ink leading-relaxed">
+        <p className="max-w-[85%] whitespace-pre-wrap rounded-card bg-bw-subtle px-3.5 py-2 text-[14.5px] text-bw-ink leading-relaxed">
           {item.text}
         </p>
       </div>

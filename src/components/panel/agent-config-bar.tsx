@@ -66,43 +66,39 @@ export default function AgentConfigBar({
 
   return (
     <div className="flex min-w-0 items-center gap-2">
-      <span className="flex min-w-0 items-center gap-1 text-[11px] text-bw-muted">
-        Backend
-        <select
-          aria-label="Agent backend"
-          className="rounded-md border border-bw-hairline bg-bw-surface px-1.5 py-1 font-mono text-[11px] text-bw-ink outline-none focus:border-bw-edge disabled:opacity-50"
-          disabled={hasConversation}
-          onChange={handleDriverChange}
-          value={config.driverId}
-        >
-          {AGENT_DRIVER_IDS.map((id) => (
-            <option key={id} value={id}>
-              {DRIVER_LABELS[id]}
-            </option>
-          ))}
-        </select>
-      </span>
+      {/* No visible label: the value says what it is, and each select keeps
+          its accessible name in aria-label for anything that cannot see it. */}
+      <select
+        aria-label="Agent backend"
+        className="rounded-md border border-bw-hairline bg-bw-surface px-1.5 py-1 font-mono text-[11px] text-bw-ink outline-none focus:border-bw-edge disabled:opacity-50"
+        disabled={hasConversation}
+        onChange={handleDriverChange}
+        value={config.driverId}
+      >
+        {AGENT_DRIVER_IDS.map((id) => (
+          <option key={id} value={id}>
+            {DRIVER_LABELS[id]}
+          </option>
+        ))}
+      </select>
 
-      <span className="flex min-w-0 items-center gap-1 text-[11px] text-bw-muted">
-        Tier
-        <select
-          aria-label="Permission tier"
-          className={cn(
-            "rounded-md border bg-bw-surface px-1.5 py-1 font-mono text-[11px] outline-none focus:border-bw-edge",
-            config.tier === "yolo"
-              ? cn("border-red-600/40", YOLO_WARNING_CLASS)
-              : "border-bw-hairline text-bw-ink"
-          )}
-          onChange={handleTierChange}
-          value={config.tier}
-        >
-          {PERMISSION_TIERS.map((tier) => (
-            <option key={tier} value={tier}>
-              {TIER_LABELS[tier]}
-            </option>
-          ))}
-        </select>
-      </span>
+      <select
+        aria-label="Permission tier"
+        className={cn(
+          "rounded-md border bg-bw-surface px-1.5 py-1 font-mono text-[11px] outline-none focus:border-bw-edge",
+          config.tier === "yolo"
+            ? cn("border-red-600/40", YOLO_WARNING_CLASS)
+            : "border-bw-hairline text-bw-ink"
+        )}
+        onChange={handleTierChange}
+        value={config.tier}
+      >
+        {PERMISSION_TIERS.map((tier) => (
+          <option key={tier} value={tier}>
+            {TIER_LABELS[tier]}
+          </option>
+        ))}
+      </select>
 
       {config.tier === "yolo" ? (
         <span className={cn("text-[10.5px]", YOLO_WARNING_CLASS)}>

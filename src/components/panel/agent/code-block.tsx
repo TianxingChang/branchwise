@@ -58,7 +58,7 @@ export default function CodeBlock({ language, text }: CodeBlockProps) {
   return (
     <div className="group relative overflow-hidden rounded-card border border-bw-hairline bg-bw-canvas/70">
       <div className="flex items-center justify-between border-bw-hairline border-b px-2.5 py-1">
-        <span className="font-mono text-[11px] text-bw-muted">
+        <span className="font-mono text-[11.5px] text-bw-muted">
           {language ?? "text"}
         </span>
         <button
@@ -80,12 +80,12 @@ export default function CodeBlock({ language, text }: CodeBlockProps) {
         // Shiki emits its own colours; branchwise-code strips the frame it
         // brings with them so only ours shows.
         <div
-          className="branchwise-code overflow-x-auto px-2.5 py-2.5 font-mono text-[12.5px] leading-[1.6]"
+          className="branchwise-code overflow-x-auto px-2.5 py-2.5 font-mono text-[13px] leading-[1.6]"
           // biome-ignore lint/security/noDangerouslySetInnerHtml: shiki output, generated from this text in-process
           dangerouslySetInnerHTML={{ __html: html }}
         />
       ) : (
-        <pre className="overflow-x-auto px-2.5 py-2.5 font-mono text-[12.5px] text-bw-ink leading-[1.6]">
+        <pre className="overflow-x-auto px-2.5 py-2.5 font-mono text-[13px] text-bw-ink leading-[1.6]">
           {text}
         </pre>
       )}
