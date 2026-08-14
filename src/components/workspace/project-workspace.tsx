@@ -141,6 +141,7 @@ export default function ProjectWorkspace({ project }: { project: ProjectRef }) {
             nodes.find((node) => node.id === selected.parentId)?.branch ?? null
           }
           projectFolder={project.path}
+          view={panelDoc.view}
         />
       ) : null}
 

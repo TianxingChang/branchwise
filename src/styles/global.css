@@ -86,20 +86,21 @@
   --bw-frame-edge: var(--bw-hairline);
 }
 
-/* Set by AppShell once the main process confirms darwin. Low alpha — enough
-   for tab labels to stay legible over a busy wallpaper, sheer enough that the
-   vibrancy still reads as glass.
+/* Set by AppShell once the main process confirms darwin.
 
-   The tint is cool rather than the warm paper of the canvas it frames. Glass
-   reads as glass by being colder than what sits behind it, and the contrast
-   with the warm card is what separates frame from content; matching the
-   canvas here made the two blur into one surface. Blue is carried by hue at
-   low saturation, not by a stronger colour — raising the alpha to make it
-   read would just take the transparency back. */
+   White (user call, 2026-08-13), where it was a cool blue before. The frame
+   still lets the desktop through — it is the vibrancy layer doing the work,
+   not the colour — but it now reads as a white shell around the workspace
+   rather than as tinted glass.
+
+   Higher alpha than the blue needed, and for the same reason the blue needed
+   less: a hue reads at 22% because it differs from what is behind it, while
+   white has to out-weigh the wallpaper to look white at all. Still short of
+   opaque, so the blur stays visible at the edges. */
 :root[data-vibrancy="on"] {
-  --bw-chrome: rgb(198 219 252 / 22%);
-  --bw-tab-hover: rgb(240 246 255 / 40%);
-  --bw-frame-edge: rgb(235 243 255 / 60%);
+  --bw-chrome: rgb(255 255 255 / 62%);
+  --bw-tab-hover: rgb(255 255 255 / 55%);
+  --bw-frame-edge: rgb(255 255 255 / 70%);
 }
 
 .dark {

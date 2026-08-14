@@ -26,6 +26,7 @@ import { clampSplitWidth } from "@/lib/branch/posture";
 import { descendantNodeIds } from "@/lib/git/resolve";
 import { useRepoStore } from "@/stores/repo-store";
 import type {
+  BranchView,
   CanvasNode,
   PanelState,
   PanelTab,
@@ -62,6 +63,8 @@ interface NodePanelProps {
   panel: PanelState;
   parentBranch: string | null;
   projectFolder: string;
+  /** Decides how far the panel may widen: a list yields more room than a graph. */
+  view: BranchView;
 }
 
 export default function NodePanel({
@@ -70,6 +73,7 @@ export default function NodePanel({
   panel,
   parentBranch,
   projectFolder,
+  view,
 }: NodePanelProps) {
   const setPanelCollapsed = useRepoStore((state) => state.setPanelCollapsed);
   const setPanelTab = useRepoStore((state) => state.setPanelTab);
@@ -91,6 +95,7 @@ export default function NodePanel({
     onCommit: handleResizeCommit,
     onMove: setDragWidth,
     startWidth: panel.width,
+    view,
   });
 
   const expand = useCallback(() => {
@@ -543,10 +548,12 @@ function useResizeHandle({
   onCommit,
   onMove,
   startWidth,
+  view,
 }: {
   onCommit: (width: number) => void;
   onMove: (width: number) => void;
   startWidth: number;
+  view: BranchView;
 }) {
   const stateRef = useRef({ originWidth: startWidth, originX: 0 });
 
@@ -561,7 +568,8 @@ function useResizeHandle({
         const delta = stateRef.current.originX - moveEvent.clientX;
         latest = clampSplitWidth(
           window.innerWidth,
-          stateRef.current.originWidth + delta
+          stateRef.current.originWidth + delta,
+          view
         );
         onMove(latest);
       };

@@ -419,10 +419,14 @@ export const useRepoStore = create<RepoStoreState>()((set, get) => {
     },
 
     setPanelWidth: (folder, width) => {
-      const clamped = clampSplitWidth(window.innerWidth, width);
+      // Clamped against the doc's own view: how far the panel may widen
+      // depends on what is being squeezed beside it.
       mutateDoc(folder, (doc) => ({
         ...doc,
-        panel: { ...doc.panel, width: clamped },
+        panel: {
+          ...doc.panel,
+          width: clampSplitWidth(window.innerWidth, width, doc.view),
+        },
       }));
     },
 

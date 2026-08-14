@@ -18,7 +18,9 @@ function node(id: string, parentId: string | null): CanvasNode {
 
 /** id → depth, which is all the layout needs from a row. */
 function shape(nodes: CanvasNode[]) {
-  return treeRows(nodes).map((row) => `${"  ".repeat(row.depth)}${row.node.id}`);
+  return treeRows(nodes).map(
+    (row) => `${"  ".repeat(row.depth)}${row.node.id}`
+  );
 }
 
 describe("treeRows", () => {
