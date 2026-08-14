@@ -1,5 +1,6 @@
 import { FuseV1Options, FuseVersion } from "@electron/fuses";
 import { MakerDeb } from "@electron-forge/maker-deb";
+import { MakerDMG } from "@electron-forge/maker-dmg";
 import { MakerRpm } from "@electron-forge/maker-rpm";
 import { MakerSquirrel } from "@electron-forge/maker-squirrel";
 import { MakerZIP } from "@electron-forge/maker-zip";
@@ -42,6 +43,15 @@ const config: ForgeConfig = {
   },
   makers: [
     new MakerSquirrel({}),
+    // Both, on macOS: the dmg is what someone downloads and drags to
+    // Applications, the zip is what an updater fetches. Squirrel.Mac only
+    // knows how to consume a zip, so dropping it would quietly close off
+    // auto-update the day it is switched on.
+    //
+    // The icon is named with its extension here, unlike packagerConfig's —
+    // this one is a file handed to appdmg, not a base name completed per
+    // platform, and the maker only ever runs on darwin.
+    new MakerDMG({ icon: "./images/dotwise.icns" }, ["darwin"]),
     new MakerZIP({}, ["darwin"]),
     new MakerRpm({}),
     new MakerDeb({}),
