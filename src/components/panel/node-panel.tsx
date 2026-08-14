@@ -222,14 +222,6 @@ export default function NodePanel({
               />
             ))}
           </nav>
-
-          {/* Only the Agent tab has conversations, so they appear with it and
-              leave with it — and they live here, in the panel's own chrome,
-              rather than inside AgentTab, because that is what lets them share
-              this row instead of adding one below it. */}
-          {panel.tab === "agent" ? (
-            <ConversationTabs worktreePath={node.id} />
-          ) : null}
         </div>
 
         <button
@@ -241,6 +233,26 @@ export default function NodePanel({
           <X size={13} />
         </button>
       </div>
+
+      {/*
+        Conversations get their own row (user call, 2026-08-13).
+
+        They shared the row above until four of them made it wrap, and the
+        wrapped version read better than the packed one — so this is that,
+        made deliberate instead of left to overflow. The row above stays a
+        fixed shape no matter how many conversations are open.
+
+        What does not come back is the chip shape. Sharing a row was one way to
+        stop the two sets of tabs rhyming; being a different species is the
+        other, and it is the one that was actually doing the work. Underlined
+        text under filled chips reads as a different kind of thing even
+        directly beneath them.
+      */}
+      {panel.tab === "agent" ? (
+        <div className="px-3.5 pb-1">
+          <ConversationTabs worktreePath={node.id} />
+        </div>
+      ) : null}
 
       <div className="min-h-0 flex-1 border-bw-hairline border-t">
         <PanelBody
