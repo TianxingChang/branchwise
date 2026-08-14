@@ -78,29 +78,15 @@
   --bw-shadow-overlay:
     0 0 0 1px var(--bw-hairline), 0 8px 28px rgb(26 26 24 / 6%);
 
-  /* The window frame. Opaque by default: only macOS puts a blur layer behind
-     the page, so on every other platform a translucent frame would show the
-     window's backing colour and nothing more. */
-  --bw-chrome: var(--bw-canvas);
+  /* The window frame: pure white and opaque (user call, 2026-08-13). It was
+     macOS vibrancy, tinted first warm, then blue, then white — and once white
+     wanted to read as white it needed enough alpha that the blur behind it had
+     nothing left to say. An opaque frame is the thing that was being aimed at
+     all along, so the blur layer is gone rather than sitting behind a page it
+     cannot show through. */
+  --bw-chrome: #ffffff;
   --bw-tab-hover: var(--bw-subtle);
   --bw-frame-edge: var(--bw-hairline);
-}
-
-/* Set by AppShell once the main process confirms darwin.
-
-   White (user call, 2026-08-13), where it was a cool blue before. The frame
-   still lets the desktop through — it is the vibrancy layer doing the work,
-   not the colour — but it now reads as a white shell around the workspace
-   rather than as tinted glass.
-
-   Higher alpha than the blue needed, and for the same reason the blue needed
-   less: a hue reads at 22% because it differs from what is behind it, while
-   white has to out-weigh the wallpaper to look white at all. Still short of
-   opaque, so the blur stays visible at the edges. */
-:root[data-vibrancy="on"] {
-  --bw-chrome: rgb(255 255 255 / 62%);
-  --bw-tab-hover: rgb(255 255 255 / 55%);
-  --bw-frame-edge: rgb(255 255 255 / 70%);
 }
 
 .dark {
@@ -210,9 +196,7 @@
     @apply border-border outline-ring/50;
   }
   body {
-    /* Deliberately unpainted: on macOS this is the hole the window's vibrancy
-       layer shows through. AppShell paints the frame over it. */
-    @apply bg-transparent text-foreground overflow-hidden font-sans antialiased;
+    @apply bg-bw-chrome text-foreground overflow-hidden font-sans antialiased;
   }
   html {
     @apply font-sans;
