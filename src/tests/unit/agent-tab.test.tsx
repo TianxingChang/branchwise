@@ -122,6 +122,7 @@ describe("AgentTab", () => {
     fireEvent.click(screen.getByRole("button", { name: APPROVE_BUTTON_NAME }));
     expect(respond).toHaveBeenCalledWith({
       approved: true,
+      conversationId: "1",
       requestId: "r1",
       worktreePath: WT,
     });
@@ -142,6 +143,7 @@ describe("AgentTab", () => {
     fireEvent.click(screen.getByRole("button", { name: DENY_BUTTON_NAME }));
     expect(respond).toHaveBeenCalledWith({
       approved: false,
+      conversationId: "1",
       requestId: "r1",
       worktreePath: WT,
     });

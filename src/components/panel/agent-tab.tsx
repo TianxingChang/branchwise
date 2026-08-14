@@ -1,6 +1,8 @@
-import { ArrowUp, Sparkles, Square } from "lucide-react";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { worktreeDiffSummary } from "@/actions/repo";
+import Composer from "@/components/panel/agent/composer";
+import MessageBody from "@/components/panel/agent/message-body";
+import ThinkingTrace from "@/components/panel/agent/thinking-trace";
 import {
   NoticeCard,
   PermissionCard,
@@ -13,9 +15,30 @@ import {
   selectSession,
   useAgentStore,
 } from "@/stores/agent-store";
+import { conversationsOf, useAgentTabsStore } from "@/stores/agent-tabs-store";
 import { useRepoStore } from "@/stores/repo-store";
 import type { AgentConfig, AgentUsage } from "@/types/agent";
 import type { DiffSummary } from "@/types/diff";
+import { cn } from "@/utils/tailwind";
+
+/**
+ * How wide the conversation is allowed to get, whatever the panel does.
+ *
+ * Wider than a measure for prose alone (user call, 2026-08-13). At this tab's
+ * 14.5px the textbook 75-character line lands near 34rem, and this is closer
+ * to 95 — deliberately, because a transcript is not a page of prose. It is
+ * prose interleaved with code blocks, tool chips and file paths, all of which
+ * want room, and against a panel dragged wide the alternative was worse: a
+ * narrow column stranded between two empty margins.
+ *
+ * There is still no matching minimum. The column is fluid below the cap and
+ * the floor is the panel's own MIN_PANEL_WIDTH; a min-width here would
+ * overflow a narrow panel sideways rather than protect anything.
+ */
+const MEASURE = "mx-auto w-full max-w-[46rem]";
+
+/** The transcript reads at its own scale; see --bw-prose-size in global.css. */
+const PROSE_SCALE = "[--bw-prose-size:14.5px]";
 
 interface AgentTabProps {
   branchLabel: string;
@@ -32,7 +55,15 @@ export default function AgentTab({
   projectFolder,
   worktreePath,
 }: AgentTabProps) {
-  const session = useAgentStore((state) => selectSession(state, worktreePath));
+  const conversations = useAgentTabsStore((state) =>
+    conversationsOf(state, worktreePath)
+  );
+  const target = useMemo(
+    () => ({ conversationId: conversations.activeId, worktreePath }),
+    [conversations.activeId, worktreePath]
+  );
+
+  const session = useAgentStore((state) => selectSession(state, target));
   const open = useAgentStore((state) => state.open);
   const close = useAgentStore((state) => state.close);
   const sendMessage = useAgentStore((state) => state.sendMessage);
@@ -40,13 +71,21 @@ export default function AgentTab({
   const respond = useAgentStore((state) => state.respond);
   const configure = useAgentStore((state) => state.configure);
 
-  const [draft, setDraft] = useState("");
+  const [drafts, setDrafts] = useState<Record<string, string>>({});
+  const draft = drafts[conversations.activeId] ?? "";
   const scrollRef = useRef<HTMLDivElement>(null);
 
+  const setDraft = useCallback(
+    (text: string) => {
+      setDrafts((was) => ({ ...was, [conversations.activeId]: text }));
+    },
+    [conversations.activeId]
+  );
+
   useEffect(() => {
-    open(worktreePath);
-    return () => close(worktreePath);
-  }, [close, open, worktreePath]);
+    open(target);
+    return () => close(target);
+  }, [close, open, target]);
 
   const { conversation } = session;
   const running = conversation.activeTurnId !== null;
@@ -66,43 +105,26 @@ export default function AgentTab({
     if (draft.trim().length === 0 || running) {
       return;
     }
-    sendMessage(worktreePath, draft);
+    sendMessage(target, draft);
     setDraft("");
-  }, [draft, running, sendMessage, worktreePath]);
-
-  const handleChange = useCallback(
-    (event: React.ChangeEvent<HTMLTextAreaElement>) => {
-      setDraft(event.target.value);
-    },
-    []
-  );
-
-  const handleKeyDown = useCallback(
-    (event: React.KeyboardEvent<HTMLTextAreaElement>) => {
-      if (event.key === "Enter" && !event.shiftKey) {
-        event.preventDefault();
-        submit();
-      }
-    },
-    [submit]
-  );
+  }, [draft, running, sendMessage, setDraft, target]);
 
   const handleInterrupt = useCallback(() => {
-    interrupt(worktreePath);
-  }, [interrupt, worktreePath]);
+    interrupt(target);
+  }, [interrupt, target]);
 
   const handleRespond = useCallback(
     (requestId: string, approved: boolean) => {
-      respond(worktreePath, requestId, approved);
+      respond(target, requestId, approved);
     },
-    [respond, worktreePath]
+    [respond, target]
   );
 
   const handleConfigChange = useCallback(
     (config: AgentConfig) => {
-      configure(worktreePath, config);
+      configure(target, config);
     },
-    [configure, worktreePath]
+    [configure, target]
   );
 
   const hasContent = conversation.items.length > 0 || running;
@@ -127,68 +149,47 @@ export default function AgentTab({
         <InheritedBadge inherited={session.inherited} />
       ) : null}
 
-      <div
-        className="min-h-0 flex-1 space-y-3 overflow-y-auto px-4 py-4"
-        ref={scrollRef}
-      >
-        {hasContent ? null : <EmptyConversation />}
+      <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4" ref={scrollRef}>
+        <div className={cn(MEASURE, PROSE_SCALE, "space-y-3")}>
+          {hasContent ? null : <EmptyConversation />}
 
-        {conversation.items.map((item) => (
-          <ConversationItemRow
-            item={item}
-            key={item.id}
-            onRespond={handleRespond}
-            showCost={item.id === lastAssistantId}
-          />
-        ))}
+          {conversation.items.map((item) => (
+            <ConversationItemRow
+              item={item}
+              key={item.id}
+              onRespond={handleRespond}
+              showCost={item.id === lastAssistantId}
+            />
+          ))}
 
-        {running ? (
-          <StreamingMessage
-            text={conversation.streamingText}
-            thinking={conversation.streamingThinking}
-          />
-        ) : null}
+          {running ? (
+            <StreamingMessage
+              text={conversation.streamingText}
+              thinking={conversation.streamingThinking}
+            />
+          ) : null}
+        </div>
       </div>
 
-      {session.config ? (
-        <AgentConfigBar
-          config={session.config}
-          hasConversation={session.hasConversation}
-          onChange={handleConfigChange}
+      <div className={cn(MEASURE, "px-3 pt-1 pb-3")}>
+        <Composer
+          controls={
+            session.config ? (
+              <AgentConfigBar
+                config={session.config}
+                hasConversation={session.hasConversation}
+                onChange={handleConfigChange}
+              />
+            ) : null
+          }
+          disabled={running}
+          onChange={setDraft}
+          onInterrupt={handleInterrupt}
+          onSubmit={submit}
+          placeholder={`Ask the agent to work on ${branchLabel}…`}
+          running={running}
+          text={draft}
         />
-      ) : null}
-
-      <div className="border-bw-hairline border-t p-3">
-        <div className="flex items-end gap-2 rounded-xl border border-bw-hairline bg-bw-canvas/60 py-2 pr-2 pl-3 focus-within:border-bw-edge">
-          <textarea
-            className="max-h-28 min-h-6 flex-1 resize-none bg-transparent text-[12.5px] text-bw-ink leading-relaxed outline-none placeholder:text-bw-muted"
-            disabled={running}
-            onChange={handleChange}
-            onKeyDown={handleKeyDown}
-            placeholder={`Ask the agent to work on ${branchLabel}…`}
-            rows={1}
-            value={draft}
-          />
-          {running ? (
-            <button
-              className="flex shrink-0 items-center gap-1 rounded-full border border-bw-hairline px-2.5 py-1 text-[11px] text-bw-muted transition-colors hover:border-bw-edge hover:text-bw-ink"
-              onClick={handleInterrupt}
-              type="button"
-            >
-              <Square size={10} strokeWidth={2.5} />
-              Interrupt
-            </button>
-          ) : null}
-          <button
-            aria-label="Send message"
-            className="flex size-7 shrink-0 items-center justify-center rounded-full bg-bw-ink text-white transition-opacity disabled:opacity-25"
-            disabled={draft.trim().length === 0 || running}
-            onClick={submit}
-            type="button"
-          >
-            <ArrowUp size={14} strokeWidth={2.5} />
-          </button>
-        </div>
       </div>
     </div>
   );
@@ -300,21 +301,23 @@ function EmptyConversation() {
 
 function AssistantText({ text }: { text: string }) {
   return (
-    <div className="flex gap-2">
-      <Sparkles className="mt-0.5 shrink-0 text-bw-muted" size={13} />
-      <p className="whitespace-pre-wrap text-[12.5px] text-bw-ink leading-relaxed">
-        {text}
-      </p>
+    <div className="min-w-0">
+      <MessageBody text={text} />
     </div>
   );
 }
 
-function ThinkingDetails({ text }: { text: string }) {
+function ThinkingDetails({
+  running,
+  text,
+}: {
+  running?: boolean;
+  text: string;
+}) {
   return (
-    <details className="pl-6 text-[11px] text-bw-muted">
-      <summary className="cursor-pointer select-none">thinking</summary>
-      <p className="mt-1 whitespace-pre-wrap leading-relaxed">{text}</p>
-    </details>
+    <div>
+      <ThinkingTrace running={running} text={text} />
+    </div>
   );
 }
 
@@ -332,9 +335,9 @@ function StreamingMessage({
       {text ? (
         <AssistantText text={text} />
       ) : (
-        <p className="pl-6 text-[12.5px] text-bw-muted">Thinking…</p>
+        <p className="text-[12.5px] text-bw-muted">Thinking…</p>
       )}
-      {thinking ? <ThinkingDetails text={thinking} /> : null}
+      {thinking ? <ThinkingDetails running text={thinking} /> : null}
     </div>
   );
 }
@@ -368,7 +371,7 @@ function ConversationItemRow({
   if (item.kind === "user") {
     return (
       <div className="flex justify-end">
-        <p className="max-w-[85%] whitespace-pre-wrap rounded-xl bg-bw-subtle px-3 py-2 text-[12.5px] text-bw-ink leading-relaxed">
+        <p className="max-w-[85%] whitespace-pre-wrap rounded-card bg-bw-subtle px-3.5 py-2 text-[14.5px] text-bw-ink leading-relaxed">
           {item.text}
         </p>
       </div>
@@ -381,7 +384,7 @@ function ConversationItemRow({
         <AssistantText text={item.text} />
         {item.thinking ? <ThinkingDetails text={item.thinking} /> : null}
         {showCost && item.costUsd !== null ? (
-          <p className="pl-6 text-[10.5px] text-bw-muted">
+          <p className="text-[10.5px] text-bw-muted">
             {formatCost(item.costUsd, item.usage)}
           </p>
         ) : null}

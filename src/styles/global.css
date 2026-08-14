@@ -54,28 +54,39 @@
   --bw-done: #3e9e63;
   --bw-removed: #c05b4d;
 
-  /* The window frame. Opaque by default: only macOS puts a blur layer behind
-     the page, so on every other platform a translucent frame would show the
-     window's backing colour and nothing more. */
-  --bw-chrome: var(--bw-canvas);
+  /*
+   * A structural scale for conversation surfaces, taken from Beautiful UI
+   * (beautifului.dev, MIT) and expressed in this app's palette rather than
+   * its own. Its neutrals are cool grey and ours are warm paper; adopting
+   * both would put two design systems in one window, so what carries over is
+   * the *system* — a three-step ink ramp, two line weights, a shadow ladder
+   * where every level starts with a hairline ring, and four radii that say
+   * what a thing is: chip, control, card, field.
+   */
+  --bw-ink-2: #5f5e58;
+  --bw-radius-chip: 6px;
+  --bw-radius-control: 8px;
+  --bw-radius-card: 10px;
+  --bw-radius-field: 14px;
+  --bw-shadow-hairline: 0 0 0 1px var(--bw-hairline);
+  --bw-shadow-btn: 0 0 0 1px var(--bw-edge), 0 1px 2px rgb(26 26 24 / 5%);
+  --bw-shadow-card:
+    0 0 0 1px var(--bw-hairline), 0 1px 2px rgb(26 26 24 / 4%),
+    0 2px 6px rgb(26 26 24 / 3%);
+  --bw-shadow-raised:
+    0 0 0 1px var(--bw-hairline), 0 2px 10px rgb(26 26 24 / 4%);
+  --bw-shadow-overlay:
+    0 0 0 1px var(--bw-hairline), 0 8px 28px rgb(26 26 24 / 6%);
+
+  /* The window frame: pure white and opaque (user call, 2026-08-13). It was
+     macOS vibrancy, tinted first warm, then blue, then white — and once white
+     wanted to read as white it needed enough alpha that the blur behind it had
+     nothing left to say. An opaque frame is the thing that was being aimed at
+     all along, so the blur layer is gone rather than sitting behind a page it
+     cannot show through. */
+  --bw-chrome: #ffffff;
   --bw-tab-hover: var(--bw-subtle);
   --bw-frame-edge: var(--bw-hairline);
-}
-
-/* Set by AppShell once the main process confirms darwin. Low alpha — enough
-   for tab labels to stay legible over a busy wallpaper, sheer enough that the
-   vibrancy still reads as glass.
-
-   The tint is cool rather than the warm paper of the canvas it frames. Glass
-   reads as glass by being colder than what sits behind it, and the contrast
-   with the warm card is what separates frame from content; matching the
-   canvas here made the two blur into one surface. Blue is carried by hue at
-   low saturation, not by a stronger colour — raising the alpha to make it
-   read would just take the transparency back. */
-:root[data-vibrancy="on"] {
-  --bw-chrome: rgb(198 219 252 / 22%);
-  --bw-tab-hover: rgb(240 246 255 / 40%);
-  --bw-frame-edge: rgb(235 243 255 / 60%);
 }
 
 .dark {
@@ -153,6 +164,16 @@
   --radius-2xl: calc(var(--radius) + 8px);
   --radius-3xl: calc(var(--radius) + 12px);
   --radius-4xl: calc(var(--radius) + 16px);
+  --color-bw-ink-2: var(--bw-ink-2);
+  --radius-chip: var(--bw-radius-chip);
+  --radius-control: var(--bw-radius-control);
+  --radius-card: var(--bw-radius-card);
+  --radius-field: var(--bw-radius-field);
+  --shadow-hairline: var(--bw-shadow-hairline);
+  --shadow-btn: var(--bw-shadow-btn);
+  --shadow-card: var(--bw-shadow-card);
+  --shadow-raised: var(--bw-shadow-raised);
+  --shadow-overlay: var(--bw-shadow-overlay);
   --color-bw-chrome: var(--bw-chrome);
   --color-bw-tab-hover: var(--bw-tab-hover);
   --color-bw-frame-edge: var(--bw-frame-edge);
@@ -175,9 +196,7 @@
     @apply border-border outline-ring/50;
   }
   body {
-    /* Deliberately unpainted: on macOS this is the hole the window's vibrancy
-       layer shows through. AppShell paints the frame over it. */
-    @apply bg-transparent text-foreground overflow-hidden font-sans antialiased;
+    @apply bg-bw-chrome text-foreground overflow-hidden font-sans antialiased;
   }
   html {
     @apply font-sans;
@@ -193,6 +212,17 @@
 }
 
 @layer components {
+  /* Strips that scroll sideways when they run out of room. The bar itself
+     would eat a third of a 20px-tall strip and appear only while scrolling,
+     so the row jumps as it comes and goes. */
+  .no-scrollbar {
+    scrollbar-width: none;
+  }
+
+  .no-scrollbar::-webkit-scrollbar {
+    display: none;
+  }
+
   /* Shiki emits its own inline colours; only the frame is ours. */
   .branchwise-code pre {
     margin: 0;
@@ -205,9 +235,14 @@
     font-size: inherit;
   }
 
-  /* tiptap renders markdown into plain semantic HTML, styled to match. */
+  /* tiptap renders markdown into plain semantic HTML, styled to match.
+
+     The size is a variable so a surface can set its own reading scale once
+     and have the headings, code and inline spans follow: everything below is
+     in em. The agent transcript is a reading surface and asks for more than
+     the 12.5px that suits a file preview. */
   .branchwise-markdown {
-    font-size: 12.5px;
+    font-size: var(--bw-prose-size, 12.5px);
     line-height: 1.65;
     color: var(--bw-ink);
   }
@@ -217,17 +252,17 @@
   }
 
   .branchwise-markdown h1 {
-    font-size: 16px;
+    font-size: 1.28em;
     font-weight: 600;
   }
 
   .branchwise-markdown h2 {
-    font-size: 14.5px;
+    font-size: 1.16em;
     font-weight: 600;
   }
 
   .branchwise-markdown h3 {
-    font-size: 13px;
+    font-size: 1.04em;
     font-weight: 600;
   }
 
@@ -247,7 +282,7 @@
   .branchwise-markdown code {
     padding: 0.1em 0.3em;
     font-family: var(--font-mono);
-    font-size: 11.5px;
+    font-size: 0.92em;
     background: var(--bw-subtle);
     border-radius: 4px;
   }

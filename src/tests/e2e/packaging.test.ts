@@ -1,9 +1,10 @@
 import { execFile } from "node:child_process";
-import { existsSync } from "node:fs";
+import { existsSync, realpathSync } from "node:fs";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
+import { listPackage } from "@electron/asar";
 import { _electron as electron, expect, test } from "@playwright/test";
 import { findLatestBuild, parseElectronApp } from "electron-playwright-helpers";
 
@@ -32,7 +33,7 @@ const GIT_ENV = [
 // waits are 30s each — the default per-test budget cannot cover that.
 test.setTimeout(120_000);
 
-test("the packaged app carries its own node-pty and can open a shell", async () => {
+test("the packaged app carries what the terminal and the agent need", async () => {
   const build = findLatestBuild();
   const staging = await mkdtemp(path.join(tmpdir(), "branchwise-install-"));
 
@@ -67,6 +68,36 @@ test("the packaged app carries its own node-pty and can open a shell", async () 
     });
 
     try {
+      // The agent SDK is marked external, so it has to be *found* at runtime
+      // rather than being in the bundle. Asked from the installed copy's own
+      // main process, which is the only place the answer is the real one:
+      // this shipped resolving in development and failing once installed,
+      // with "Cannot find package" at the first message.
+      // The agent SDK is marked external, so it is not in the bundle — it has
+      // to be found on disk beside it. Asked of the running app rather than
+      // guessed: this is the root its own `import` resolves from.
+      const appPath = await app.evaluate(({ app: electronApp }) =>
+        electronApp.getAppPath()
+      );
+      // realpath, because macOS hands out /var/... and reports /private/var/...
+      expect(appPath.startsWith(realpathSync(staging))).toBe(true);
+
+      // getAppPath points *inside* the archive (app.asar/.vite/build), so the
+      // archive itself is everything up to and including app.asar.
+      const marker = `${path.sep}app.asar`;
+      const archive = appPath.slice(0, appPath.indexOf(marker) + marker.length);
+
+      const shipped = listPackage(archive, { isPack: false });
+      // Node walks up from the bundle at /.vite/build to /node_modules, so
+      // this is the path its resolver arrives at. Shipping without it is what
+      // produced "Cannot find package" at the first message in a real install.
+      expect(shipped).toContain(
+        "/node_modules/@anthropic-ai/claude-agent-sdk/package.json"
+      );
+      expect(shipped).toContain(
+        "/node_modules/@anthropic-ai/claude-agent-sdk/sdk.mjs"
+      );
+
       const page = await app.firstWindow();
       page.on("pageerror", (error) => console.error(error));
 
@@ -93,7 +124,7 @@ test("the packaged app carries its own node-pty and can open a shell", async () 
       });
 
       await canvas.getByText("main", { exact: true }).click();
-      await page.getByRole("button", { name: "Terminal" }).click();
+      await page.getByRole("button", { exact: true, name: "Terminal" }).click();
 
       const screen = page.locator(".xterm-screen");
       await expect(screen).toBeVisible({ timeout: 30_000 });

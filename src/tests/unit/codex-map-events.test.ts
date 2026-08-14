@@ -35,7 +35,12 @@ describe("mapCodexNotification", () => {
         CTX
       )
     ).toEqual([
-      { detail: "npm test", kind: "tool-started", name: "shell", toolId: "it_1" },
+      {
+        detail: "npm test",
+        kind: "tool-started",
+        name: "shell",
+        toolId: "it_1",
+      },
     ]);
     expect(
       mapCodexNotification(
@@ -46,7 +51,9 @@ describe("mapCodexNotification", () => {
         },
         CTX
       )
-    ).toEqual([{ detail: "", kind: "tool-finished", ok: false, toolId: "it_1" }]);
+    ).toEqual([
+      { detail: "", kind: "tool-finished", ok: false, toolId: "it_1" },
+    ]);
   });
 
   test("turn completion carries usage; failed status is an error", () => {

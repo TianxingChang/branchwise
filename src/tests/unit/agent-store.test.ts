@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, test } from "vitest";
+import type { AgentTarget } from "@/actions/agent";
 import {
   _setAgentActionsForTests,
   agentActivity,
@@ -8,6 +9,8 @@ import {
 import type { AgentEvent } from "@/types/agent";
 
 const WT = "/wt/feat-a";
+/** The conversation every worktree has always had. */
+const TARGET = { conversationId: "1", worktreePath: WT };
 
 /** A controllable fake of src/actions/agent.ts. */
 function fakeActions(history: AgentEvent[], replayThenLive: AgentEvent[]) {
@@ -19,8 +22,8 @@ function fakeActions(history: AgentEvent[], replayThenLive: AgentEvent[]) {
   };
   let releaseLive: (() => void) | null = null;
   const actions = {
-    agentHistory: () => Promise.resolve(history),
-    attachAgent: (_wt: string, signal: AbortSignal) =>
+    agentHistory: (_target: AgentTarget) => Promise.resolve(history),
+    attachAgent: (_target: AgentTarget, signal: AbortSignal) =>
       Promise.resolve(
         (async function* () {
           for (const event of replayThenLive) {
@@ -35,7 +38,7 @@ function fakeActions(history: AgentEvent[], replayThenLive: AgentEvent[]) {
           });
         })()
       ),
-    getAgentConfig: () =>
+    getAgentConfig: (_target: AgentTarget) =>
       Promise.resolve({
         config: {
           driverId: "claude-code" as const,
@@ -45,20 +48,20 @@ function fakeActions(history: AgentEvent[], replayThenLive: AgentEvent[]) {
         inherited: null,
         turnActive: false,
       }),
-    interruptAgent: (wt: string) => {
-      calls.interrupt.push(wt);
+    interruptAgent: (target: AgentTarget) => {
+      calls.interrupt.push(target);
       return Promise.resolve({ ok: true as const });
     },
     respondAgentPermission: (input: unknown) => {
       calls.respond.push(input);
       return Promise.resolve({ ok: true });
     },
-    sendAgentMessage: (wt: string, text: string) => {
-      calls.send.push([wt, text]);
+    sendAgentMessage: (target: AgentTarget, text: string) => {
+      calls.send.push([target, text]);
       return Promise.resolve({ accepted: true });
     },
-    setAgentConfig: (wt: string, config: unknown) => {
-      calls.setConfig.push([wt, config]);
+    setAgentConfig: (target: AgentTarget, config: unknown) => {
+      calls.setConfig.push([target, config]);
       return Promise.resolve({ ok: true as const });
     },
   };
@@ -95,10 +98,10 @@ describe("agent store", () => {
     const fake = fakeActions(history, replay);
     _setAgentActionsForTests(fake.actions);
 
-    await useAgentStore.getState().open(WT);
+    await useAgentStore.getState().open(TARGET);
     await new Promise((resolve) => setTimeout(resolve, 20));
 
-    const session = selectSession(useAgentStore.getState(), WT);
+    const session = selectSession(useAgentStore.getState(), TARGET);
     const userItems = session.conversation.items.filter(
       (item) => item.kind === "user"
     );
@@ -128,17 +131,24 @@ describe("agent store", () => {
       ]
     );
     _setAgentActionsForTests(fake.actions);
-    await useAgentStore.getState().open(WT);
+    await useAgentStore.getState().open(TARGET);
     await new Promise((resolve) => setTimeout(resolve, 20));
 
-    expect(agentActivity(selectSession(useAgentStore.getState(), WT))).toEqual({
+    expect(
+      agentActivity(selectSession(useAgentStore.getState(), TARGET))
+    ).toEqual({
       needsPermission: true,
       running: true,
     });
 
-    await useAgentStore.getState().respond(WT, "r1", true);
+    await useAgentStore.getState().respond(TARGET, "r1", true);
     expect(fake.calls.respond).toEqual([
-      { approved: true, requestId: "r1", worktreePath: WT },
+      {
+        approved: true,
+        conversationId: "1",
+        requestId: "r1",
+        worktreePath: WT,
+      },
     ]);
     fake.end();
   });
@@ -146,10 +156,12 @@ describe("agent store", () => {
   test("sendMessage delegates and close aborts the live stream", async () => {
     const fake = fakeActions([], []);
     _setAgentActionsForTests(fake.actions);
-    await useAgentStore.getState().open(WT);
-    await useAgentStore.getState().sendMessage(WT, "do it");
-    expect(fake.calls.send).toEqual([[WT, "do it"]]);
-    useAgentStore.getState().close(WT);
-    expect(selectSession(useAgentStore.getState(), WT).attached).toBe(false);
+    await useAgentStore.getState().open(TARGET);
+    await useAgentStore.getState().sendMessage(TARGET, "do it");
+    expect(fake.calls.send).toEqual([[TARGET, "do it"]]);
+    useAgentStore.getState().close(TARGET);
+    expect(selectSession(useAgentStore.getState(), TARGET).attached).toBe(
+      false
+    );
   });
 });

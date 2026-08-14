@@ -27,11 +27,10 @@ function createWindow() {
   const preload = path.join(basePath, "preload.js");
   const isMacOS = process.platform === "darwin";
   const mainWindow = new BrowserWindow({
-    // macOS blurs the desktop behind the window with an NSVisualEffectView,
-    // but only through pixels the page leaves unpainted — an opaque backing
-    // colour would hide the effect entirely. Everywhere else there is no such
-    // layer, so the window keeps its solid canvas.
-    backgroundColor: isMacOS ? "#00000000" : "#f5f5f3",
+    // Painted, not transparent: the frame is opaque white, so there is no
+    // blur behind it to reveal — and a transparent backing would show as a
+    // black flash in the frames before the renderer paints.
+    backgroundColor: "#ffffff",
     height: 820,
     minHeight: 620,
     minWidth: 940,
@@ -41,11 +40,6 @@ function createWindow() {
     trafficLightPosition: isMacOS
       ? { x: WINDOW_CHROME.TRAFFIC_LIGHT_X, y: trafficLightY() }
       : undefined,
-    vibrancy: isMacOS ? "under-window" : undefined,
-    // Without this the material drops to its flat inactive state whenever the
-    // window loses focus, which reads as the glass breaking rather than as
-    // the window resting.
-    visualEffectState: isMacOS ? "active" : undefined,
     webPreferences: {
       contextIsolation: true,
       devTools: inDevelopment,
@@ -124,9 +118,9 @@ app.whenReady().then(() => {
     // loads from disk fast enough to win that race — the port is then dropped
     // and every IPC call hangs forever. Only reproducible outside dev.
     setupORPC();
-    // The renderer pins this too, but not until React mounts. The vibrancy
-    // material picks its appearance the moment the window opens, so a dark
-    // system setting would frost the chrome dark for those first frames.
+    // The renderer pins this too, but not until React mounts, and a dark
+    // system appearance would otherwise darken the window's own furniture for
+    // those first frames.
     nativeTheme.themeSource = "light";
     createWindow();
     checkForUpdates();

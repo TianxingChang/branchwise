@@ -30,6 +30,7 @@ export function createSeedDoc(): GraphDoc {
     },
     selectedWorktree: null,
     version: GRAPH_DOC_VERSION,
+    view: "canvas",
   };
 }
 

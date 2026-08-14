@@ -2,7 +2,9 @@ import { useCallback, useEffect, useState } from "react";
 import type { ProjectRef } from "@/actions/project";
 import { pruneWorktrees } from "@/actions/repo";
 import BranchCanvas from "@/components/canvas/branch-canvas";
+import BranchTree from "@/components/canvas/branch-tree";
 import NodePanel from "@/components/panel/node-panel";
+import ViewToggle from "@/components/workspace/view-toggle";
 import { PANEL_GUTTER, RAIL_WIDTH } from "@/lib/branch/constants";
 import { cyclePosture } from "@/lib/branch/posture";
 import { useRepoStore } from "@/stores/repo-store";
@@ -39,6 +41,7 @@ export default function ProjectWorkspace({ project }: { project: ProjectRef }) {
   const close = useRepoStore((store) => store.close);
   const state = useRepoStore((store) => store.projects[project.path]);
   const setPanelPosture = useRepoStore((store) => store.setPanelPosture);
+  const setView = useRepoStore((store) => store.setView);
 
   useEffect(() => {
     open(project.path);
@@ -100,15 +103,33 @@ export default function ProjectWorkspace({ project }: { project: ProjectRef }) {
 
   return (
     <div className="relative h-full w-full bg-bw-canvas">
+      {/* The mode decides what fills this region; the posture still decides
+          how wide it is. A tree reads at every width the postures produce,
+          including the rail `full` leaves, where a graph does not. */}
       <div
         className="absolute top-0 bottom-0 left-0"
         style={{ right: canvasRight }}
       >
-        <BranchCanvas
-          nodes={nodes}
+        <ViewToggle
+          onChange={setView}
           projectFolder={project.path}
-          selectedId={panelDoc.selectedWorktree}
+          view={panelDoc.view}
         />
+        {panelDoc.view === "tree" ? (
+          <div className="h-full pt-12">
+            <BranchTree
+              nodes={nodes}
+              projectFolder={project.path}
+              selectedId={panelDoc.selectedWorktree}
+            />
+          </div>
+        ) : (
+          <BranchCanvas
+            nodes={nodes}
+            projectFolder={project.path}
+            selectedId={panelDoc.selectedWorktree}
+          />
+        )}
       </div>
 
       {selected ? (
@@ -120,6 +141,7 @@ export default function ProjectWorkspace({ project }: { project: ProjectRef }) {
             nodes.find((node) => node.id === selected.parentId)?.branch ?? null
           }
           projectFolder={project.path}
+          view={panelDoc.view}
         />
       ) : null}
 

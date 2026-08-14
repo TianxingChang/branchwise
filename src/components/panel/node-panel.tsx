@@ -9,6 +9,7 @@ import {
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { worktreeStatus } from "@/actions/repo";
 import { branchLabel } from "@/components/canvas/branch-node";
+import ConversationTabs from "@/components/panel/agent/conversation-tabs";
 import AgentTab from "@/components/panel/agent-tab";
 import ArtifactTab from "@/components/panel/artifact-tab";
 import DiffTab from "@/components/panel/diff-tab";
@@ -25,6 +26,7 @@ import { clampSplitWidth } from "@/lib/branch/posture";
 import { descendantNodeIds } from "@/lib/git/resolve";
 import { useRepoStore } from "@/stores/repo-store";
 import type {
+  BranchView,
   CanvasNode,
   PanelState,
   PanelTab,
@@ -61,6 +63,8 @@ interface NodePanelProps {
   panel: PanelState;
   parentBranch: string | null;
   projectFolder: string;
+  /** Decides how far the panel may widen: a list yields more room than a graph. */
+  view: BranchView;
 }
 
 export default function NodePanel({
@@ -69,6 +73,7 @@ export default function NodePanel({
   panel,
   parentBranch,
   projectFolder,
+  view,
 }: NodePanelProps) {
   const setPanelCollapsed = useRepoStore((state) => state.setPanelCollapsed);
   const setPanelTab = useRepoStore((state) => state.setPanelTab);
@@ -90,6 +95,7 @@ export default function NodePanel({
     onCommit: handleResizeCommit,
     onMove: setDragWidth,
     startWidth: panel.width,
+    view,
   });
 
   const expand = useCallback(() => {
@@ -167,51 +173,91 @@ export default function NodePanel({
         />
       )}
 
-      <header className="flex flex-col gap-1 px-4 pt-3.5 pb-3">
-        <div className="flex items-center gap-2">
-          <span className="min-w-0 flex-1 truncate font-mono text-[13px] text-bw-ink tracking-tight">
-            {label}
-          </span>
-          <button
-            aria-label="Hide branch panel"
-            className="flex size-6 items-center justify-center rounded-md text-bw-muted transition-colors hover:bg-bw-subtle hover:text-bw-ink"
-            onClick={collapse}
-            type="button"
-          >
-            <X size={13} />
-          </button>
-        </div>
-        <span className="truncate font-mono text-[10.5px] text-bw-edge">
-          {node.id}
-        </span>
-        {/* One line, parent first: it is the referent every number after it is
-            measured against, so it has to be read before them. */}
-        <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1 text-[10.5px] text-bw-muted">
-          <ParentPicker
-            node={node}
-            nodes={nodes}
-            parentBranch={parentBranch}
-            projectFolder={projectFolder}
-          />
-          <NodeStats
-            node={node}
-            parentBranch={parentBranch}
-            projectFolder={projectFolder}
-          />
-        </div>
-      </header>
+      {/*
+        Identity and navigation on one row.
 
-      <nav className="flex items-center gap-1.5 px-3.5 pb-1.5">
-        {PANEL_TABS.map((tab) => (
-          <TabButton
-            isActive={panel.tab === tab}
-            key={tab}
-            onSelect={setPanelTab}
-            projectFolder={projectFolder}
-            tab={tab}
-          />
-        ))}
-      </nav>
+        They were two, and with the conversation strip beneath them, three —
+        which read as one control with three levels rather than as three
+        unrelated things. The branch, what it is measured against and the
+        numbers that follow sit together as a phrase; the tabs follow; close
+        stays pinned right.
+
+        Wrapping, not truncating. Below roughly a docked panel's width the
+        tabs drop to a second line, which is where they used to live anyway —
+        so a narrow panel is no worse than before and a wide one is a row
+        shorter. Truncating instead would have eaten the compared-to picker,
+        the one thing in the identity group worth clicking.
+
+        The worktree's path is the branch name's tooltip. It was a row of its
+        own until it was not clickable, not copyable, truncated anyway, and
+        already answered by whichever node is selected on the canvas.
+      */}
+      <div className="flex items-start gap-2 px-3.5 py-2">
+        <div className="flex min-w-0 flex-1 flex-wrap items-center gap-x-3 gap-y-1.5">
+          <div className="flex min-w-0 items-center gap-x-2.5 gap-y-1">
+            <span
+              className="min-w-0 max-w-full truncate font-mono text-[13px] text-bw-ink tracking-tight"
+              title={node.id}
+            >
+              {label}
+            </span>
+            <div className="flex min-w-0 flex-wrap items-center gap-x-2.5 gap-y-1 text-[10.5px] text-bw-muted">
+              <ParentPicker
+                node={node}
+                nodes={nodes}
+                parentBranch={parentBranch}
+                projectFolder={projectFolder}
+              />
+              <NodeStats
+                node={node}
+                parentBranch={parentBranch}
+                projectFolder={projectFolder}
+              />
+            </div>
+          </div>
+
+          <nav className="flex min-w-0 items-center gap-1.5">
+            {PANEL_TABS.map((tab) => (
+              <TabButton
+                isActive={panel.tab === tab}
+                key={tab}
+                onSelect={setPanelTab}
+                projectFolder={projectFolder}
+                tab={tab}
+              />
+            ))}
+          </nav>
+        </div>
+
+        <button
+          aria-label="Hide branch panel"
+          className="flex size-6 shrink-0 items-center justify-center rounded-md text-bw-muted transition-colors hover:bg-bw-subtle hover:text-bw-ink"
+          onClick={collapse}
+          type="button"
+        >
+          <X size={13} />
+        </button>
+      </div>
+
+      {/*
+        Conversations get their own row (user call, 2026-08-13).
+
+        They shared the row above until four of them made it wrap, and the
+        wrapped version read better than the packed one — so this is that,
+        made deliberate instead of left to overflow. The row above stays a
+        fixed shape no matter how many conversations are open.
+
+        What does not come back is the chip shape. Sharing a row was one way to
+        stop the two sets of tabs rhyming; being a different species is the
+        other, and it is the one that was actually doing the work. Underlined
+        text under filled chips reads as a different kind of thing even
+        directly beneath them.
+      */}
+      {panel.tab === "agent" ? (
+        <div className="px-3.5 pb-1">
+          <ConversationTabs worktreePath={node.id} />
+        </div>
+      ) : null}
 
       <div className="min-h-0 flex-1 border-bw-hairline border-t">
         <PanelBody
@@ -502,10 +548,12 @@ function useResizeHandle({
   onCommit,
   onMove,
   startWidth,
+  view,
 }: {
   onCommit: (width: number) => void;
   onMove: (width: number) => void;
   startWidth: number;
+  view: BranchView;
 }) {
   const stateRef = useRef({ originWidth: startWidth, originX: 0 });
 
@@ -520,7 +568,8 @@ function useResizeHandle({
         const delta = stateRef.current.originX - moveEvent.clientX;
         latest = clampSplitWidth(
           window.innerWidth,
-          stateRef.current.originWidth + delta
+          stateRef.current.originWidth + delta,
+          view
         );
         onMove(latest);
       };

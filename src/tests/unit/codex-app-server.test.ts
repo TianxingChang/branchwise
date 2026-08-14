@@ -89,7 +89,9 @@ describe("CodexAppServer", () => {
     const { child, send } = fakeChild();
     const client = new CodexAppServer(() => child);
     const notifications: [string, unknown][] = [];
-    client.onNotification((method, params) => notifications.push([method, params]));
+    client.onNotification((method, params) =>
+      notifications.push([method, params])
+    );
     // Fire-and-forget just to trigger connection — this request is never
     // answered by the fake and must not be awaited (30s timeout).
     void client.request("thread/start", {}).catch(() => {});
@@ -191,7 +193,11 @@ describe("CodexAppServer", () => {
     });
     const pending = client.request("thread/start", {});
     await new Promise((resolve) => setTimeout(resolve, 10));
-    send({ id: 55, method: "item/commandExecution/requestApproval", params: {} });
+    send({
+      id: 55,
+      method: "item/commandExecution/requestApproval",
+      params: {},
+    });
     await new Promise((resolve) => setTimeout(resolve, 10));
     const reply = received.find((m) => m.id === 55 && "error" in m);
     expect(reply).toBeDefined();

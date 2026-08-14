@@ -93,6 +93,7 @@ function seedAndRender(posture: PanelPosture) {
       panel={panel}
       parentBranch="main"
       projectFolder={FOLDER}
+      view="canvas"
     />
   );
 }
@@ -168,6 +169,7 @@ describe("resize handle", () => {
         panel={storedPanel()}
         parentBranch="main"
         projectFolder={FOLDER}
+        view="canvas"
       />
     );
 

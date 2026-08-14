@@ -1,5 +1,6 @@
 import { FuseV1Options, FuseVersion } from "@electron/fuses";
 import { MakerDeb } from "@electron-forge/maker-deb";
+import { MakerDMG } from "@electron-forge/maker-dmg";
 import { MakerRpm } from "@electron-forge/maker-rpm";
 import { MakerSquirrel } from "@electron-forge/maker-squirrel";
 import { MakerZIP } from "@electron-forge/maker-zip";
@@ -7,13 +8,20 @@ import { AutoUnpackNativesPlugin } from "@electron-forge/plugin-auto-unpack-nati
 import { FusesPlugin } from "@electron-forge/plugin-fuses";
 import { VitePlugin } from "@electron-forge/plugin-vite";
 import type { ForgeConfig } from "@electron-forge/shared-types";
-import { verifyPackagedNatives } from "./scripts/verify-packaged-natives";
+import { verifyPackagedDependencies } from "./scripts/verify-packaged-natives";
 
 /**
  * The Vite plugin packages only `.vite`, on the assumption that everything is
- * bundled. Native modules cannot be — they have to ship as real files.
+ * bundled. Anything the main bundle marks external has to ship as real files.
+ *
+ * Native modules cannot be bundled at all. The agent SDK could be, but is
+ * deliberately not: it is loaded by a dynamic import so the main bundle does
+ * not pay for it until an agent runs, and inlining it would undo that. Being
+ * external and unpackaged is what produced "Cannot find package
+ * '@anthropic-ai/claude-agent-sdk'" at the first message in a packaged build.
  */
 const PACKAGED_NODE_MODULES = [
+  "/node_modules/@anthropic-ai",
   "/node_modules/node-addon-api",
   "/node_modules/node-pty",
 ];
@@ -29,12 +37,21 @@ const shouldPackage = (file: string) =>
 const config: ForgeConfig = {
   hooks: {
     postPackage: (_forgeConfig, result) => {
-      verifyPackagedNatives(result);
+      verifyPackagedDependencies(result);
       return Promise.resolve();
     },
   },
   makers: [
     new MakerSquirrel({}),
+    // Both, on macOS: the dmg is what someone downloads and drags to
+    // Applications, the zip is what an updater fetches. Squirrel.Mac only
+    // knows how to consume a zip, so dropping it would quietly close off
+    // auto-update the day it is switched on.
+    //
+    // The icon is named with its extension here, unlike packagerConfig's —
+    // this one is a file handed to appdmg, not a base name completed per
+    // platform, and the maker only ever runs on darwin.
+    new MakerDMG({ icon: "./images/dotwise.icns" }, ["darwin"]),
     new MakerZIP({}, ["darwin"]),
     new MakerRpm({}),
     new MakerDeb({}),
@@ -45,6 +62,11 @@ const config: ForgeConfig = {
       // inside the asar archive.
       unpack: "**/node_modules/node-pty/**",
     },
+    // Shared with Dotwise Canvas rather than a second drawing of the same
+    // mark: one icns, copied in, so the two apps cannot drift apart in the
+    // Dock. The extension is left off — packager picks .icns or .ico per
+    // platform, and naming one would break the other.
+    icon: "./images/dotwise",
     ignore: (file) => !shouldPackage(file),
   },
   plugins: [

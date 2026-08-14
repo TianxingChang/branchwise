@@ -9,7 +9,7 @@ import {
   resolveRepo,
   watchRepo,
 } from "@/actions/repo";
-import { killTerminal, killTerminalsUnder } from "@/actions/terminal";
+import { killTerminalsUnder } from "@/actions/terminal";
 import { destroyViewsUnder } from "@/actions/view";
 import { createSeedDoc } from "@/lib/branch/doc";
 import { clampSplitWidth } from "@/lib/branch/posture";
@@ -21,6 +21,7 @@ import {
   wouldCreateCycle,
 } from "@/lib/git/resolve";
 import type {
+  BranchView,
   CanvasNode,
   GraphDoc,
   PanelPosture,
@@ -93,6 +94,8 @@ interface RepoStoreState {
     childBranch: string,
     parentBranch: string
   ) => MutationResult;
+  /** Graph or indented list, for the region left of the panel. */
+  setView: (folder: string, view: BranchView) => void;
 }
 
 const EMPTY: ProjectState = {
@@ -317,8 +320,10 @@ export const useRepoStore = create<RepoStoreState>()((set, get) => {
         return { error: "The repository is not ready yet.", ok: false };
       }
 
-      // Release the shell first: it holds this directory as its cwd.
-      await killTerminal(input.worktreePath).catch(() => undefined);
+      // Release the shells first: they hold this directory as their cwd. All
+      // of them — a worktree has as many terminals as the user opened, and one
+      // left running would keep the directory busy and fail the removal.
+      await killTerminalsUnder(input.worktreePath).catch(() => undefined);
 
       try {
         await removeWorktree({ ...input, path: folder });
@@ -414,10 +419,14 @@ export const useRepoStore = create<RepoStoreState>()((set, get) => {
     },
 
     setPanelWidth: (folder, width) => {
-      const clamped = clampSplitWidth(window.innerWidth, width);
+      // Clamped against the doc's own view: how far the panel may widen
+      // depends on what is being squeezed beside it.
       mutateDoc(folder, (doc) => ({
         ...doc,
-        panel: { ...doc.panel, width: clamped },
+        panel: {
+          ...doc.panel,
+          width: clampSplitWidth(window.innerWidth, width, doc.view),
+        },
       }));
     },
 
@@ -442,5 +451,8 @@ export const useRepoStore = create<RepoStoreState>()((set, get) => {
       }));
       return { ok: true };
     },
+
+    setView: (folder, view) =>
+      mutateDoc(folder, (doc) => (doc.view === view ? doc : { ...doc, view })),
   };
 });

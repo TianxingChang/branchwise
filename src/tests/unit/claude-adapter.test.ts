@@ -1,6 +1,6 @@
 import { describe, expect, test } from "vitest";
-import { createClaudeDriver } from "@/ipc/claude/adapter";
 import type { StartTurnInput } from "@/ipc/agent/driver";
+import { createClaudeDriver } from "@/ipc/claude/adapter";
 import type { AgentEvent } from "@/types/agent";
 
 function baseInput(overrides: Partial<StartTurnInput> = {}): StartTurnInput {
@@ -102,9 +102,13 @@ describe("claude adapter", () => {
     );
     await drain(handle.events);
     expect(canUse).toBeDefined();
-    const verdict = await canUse?.("Bash", { command: "rm -rf /" }, {
-      signal: new AbortController().signal,
-    });
+    const verdict = await canUse?.(
+      "Bash",
+      { command: "rm -rf /" },
+      {
+        signal: new AbortController().signal,
+      }
+    );
     expect(asked).toEqual(["Bash"]);
     expect(verdict).toMatchObject({ behavior: "deny" });
   });

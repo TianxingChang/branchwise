@@ -102,7 +102,7 @@ describe("agent session manager", () => {
     const { queue, replay } = attachAgent(WT);
     expect(replay).toEqual([]);
 
-    expect((await send(WT, "hello agent")).accepted).toBe(true);
+    expect((await send(WT, WT, "hello agent")).accepted).toBe(true);
     puppet.feed({ kind: "turn-started", turnId: "t1" });
     puppet.feed({ kind: "text-delta", text: "a" });
     puppet.feed({ kind: "text-delta", text: "b" });
@@ -141,8 +141,8 @@ describe("agent session manager", () => {
       drivers: { "claude-code": puppet.driver },
     });
     await setConfig(WT, { driverId: "claude-code", tier: "ask" });
-    await send(WT, "one");
-    const second = await send(WT, "two");
+    await send(WT, WT, "one");
+    const second = await send(WT, WT, "two");
     expect(second.accepted).toBe(false);
     puppet.feed({
       costUsd: null,
@@ -161,7 +161,7 @@ describe("agent session manager", () => {
       drivers: { "claude-code": puppet.driver },
     });
     await setConfig(WT, { driverId: "claude-code", tier: "accept-edits" });
-    await send(WT, "hi");
+    await send(WT, WT, "hi");
     puppet.feed({ kind: "turn-started", turnId: "t1" });
     puppet.feed({ kind: "text-delta", text: "stream" });
     // The replay buffer below is in-memory, but it is only populated after
@@ -197,7 +197,7 @@ describe("agent session manager", () => {
       drivers: { "claude-code": puppet.driver },
     });
     await setConfig(WT, { driverId: "claude-code", tier: "ask" });
-    await send(WT, "run it");
+    await send(WT, WT, "run it");
 
     let verdict: boolean | null = null;
     // tsc (strict null checks) reports TS2531 without this `?.`; puppet.input()
@@ -262,7 +262,7 @@ describe("agent session manager", () => {
       drivers: { "claude-code": puppet.driver },
     });
     await setConfig(WT, { driverId: "claude-code", tier: "ask" });
-    await send(WT, "run it");
+    await send(WT, WT, "run it");
     let verdict: boolean | null = null;
     // tsc (strict null checks) reports TS2531 without this `?.`; puppet.input()
     // is typed StartTurnInput | null and biome's cross-module inference
@@ -293,7 +293,7 @@ describe("agent session manager", () => {
       drivers: { "claude-code": puppet.driver },
     });
     await setConfig(WT, { driverId: "claude-code", tier: "accept-edits" });
-    await send(WT, "long task");
+    await send(WT, WT, "long task");
     puppet.feed({ kind: "turn-started", turnId: "t1" });
     await interruptTurn(WT);
     await settleUntil(async () =>
@@ -320,13 +320,13 @@ describe("agent session manager", () => {
       drivers: { "claude-code": puppet.driver },
     });
     await setConfig(WT, { driverId: "claude-code", tier: "accept-edits" });
-    await send(WT, "long task");
+    await send(WT, WT, "long task");
     puppet.feed({ kind: "turn-started", turnId: "t1" });
 
     await interruptTurn(WT);
     // The ack resolved, but the wedged stream never yields turn-done: the
     // slot must still read occupied until the grace period elapses.
-    expect((await send(WT, "too soon")).accepted).toBe(false);
+    expect((await send(WT, WT, "too soon")).accepted).toBe(false);
 
     // Cross the grace boundary, then poll (a bigger cap than settleUntil's
     // default: 3s of fake time to cross INTERRUPT_GRACE_MS, plus room for
@@ -347,7 +347,7 @@ describe("agent session manager", () => {
     });
 
     // The slot is free: a second send is accepted rather than refused.
-    const second = await send(WT, "back to work");
+    const second = await send(WT, WT, "back to work");
     expect(second.accepted).toBe(true);
     puppet.feed({
       costUsd: null,
@@ -369,7 +369,7 @@ describe("agent session manager", () => {
       drivers: { "claude-code": puppet.driver },
     });
     await setConfig(WT, { driverId: "claude-code", tier: "accept-edits" });
-    await send(WT, "long task");
+    await send(WT, WT, "long task");
     puppet.feed({ kind: "turn-started", turnId: "t1" });
 
     await interruptTurn(WT);
@@ -426,7 +426,7 @@ describe("agent session manager", () => {
     await setConfig(WT, { driverId: "claude-code", tier: "accept-edits" });
 
     // Turn 1: wedge it, interrupt, force-close via the grace.
-    await send(WT, "first task");
+    await send(WT, WT, "first task");
     puppet.feed({ kind: "turn-started", turnId: "t1" });
     await interruptTurn(WT);
     await settleUntil(
@@ -438,7 +438,7 @@ describe("agent session manager", () => {
     );
 
     // Turn 2: the slot is free; a new turn starts and parks a permission.
-    await send(WT, "second task");
+    await send(WT, WT, "second task");
     let verdict: boolean | null = null;
     // tsc (strict null checks) reports TS2531 without this `?.`; puppet.input()
     // is typed StartTurnInput | null and biome's cross-module inference
@@ -509,7 +509,7 @@ describe("agent session manager", () => {
       drivers: { "claude-code": puppet.driver },
     });
     await setConfig(WT, { driverId: "claude-code", tier: "accept-edits" });
-    await send(WT, "hi");
+    await send(WT, WT, "hi");
     puppet.input()?.onSessionId("sess-42");
     puppet.feed({
       costUsd: null,
@@ -534,7 +534,7 @@ describe("agent session manager", () => {
       baseDir: base,
       drivers: { "claude-code": puppet.driver },
     });
-    await send(WT, "again");
+    await send(WT, WT, "again");
     expect(puppet.input()?.resume.sessionId).toBe("sess-42");
     puppet.end();
   });
@@ -582,7 +582,7 @@ describe("agent session manager", () => {
       drivers: { "claude-code": puppet.driver },
     });
     await setConfig(WT, { driverId: "claude-code", tier: "ask" });
-    await send(WT, "run it");
+    await send(WT, WT, "run it");
 
     let verdict: boolean | null = null;
     // tsc (strict null checks) reports TS2531 without this `?.`; puppet.input()
@@ -621,7 +621,7 @@ describe("agent session manager", () => {
       drivers: { "claude-code": puppet.driver },
     });
     await setConfig(WT, { driverId: "claude-code", tier: "ask" });
-    await send(WT, "run it");
+    await send(WT, WT, "run it");
 
     let verdict: boolean | null = null;
     // tsc (strict null checks) reports TS2531 without this `?.`; puppet.input()
@@ -664,8 +664,8 @@ describe("agent session manager", () => {
     await setConfig(WT, { driverId: "claude-code", tier: "ask" });
 
     const [first, second] = await Promise.all([
-      send(WT, "one"),
-      send(WT, "two"),
+      send(WT, WT, "one"),
+      send(WT, WT, "two"),
     ]);
     const accepted = [first.accepted, second.accepted];
     expect(accepted.filter(Boolean)).toHaveLength(1);
@@ -695,7 +695,7 @@ describe("agent session manager", () => {
     await setConfig(WT, { driverId: "claude-code", tier: "accept-edits" });
     const { queue } = attachAgent(WT);
 
-    await send(WT, "hi");
+    await send(WT, WT, "hi");
     puppet.feed({ kind: "turn-started", turnId: "t1" });
     puppet.feed({ kind: "thinking-delta", text: "hmm " });
     puppet.feed({ kind: "thinking-delta", text: "well " });
@@ -731,7 +731,7 @@ describe("agent session manager", () => {
       drivers: { "claude-code": puppet.driver },
     });
     await setConfig(WT, { driverId: "claude-code", tier: "ask" });
-    await send(WT, "run it");
+    await send(WT, WT, "run it");
 
     let verdict: boolean | null = null;
     // tsc (strict null checks) reports TS2531 without this `?.`; puppet.input()
@@ -796,7 +796,7 @@ describe("agent session manager", () => {
       driverId: "claude-code",
       tier: "accept-edits",
     });
-    await send(PARENT_WT, "Add retry logic to the sync engine.");
+    await send(PARENT_WT, PARENT_WT, "Add retry logic to the sync engine.");
     puppet.feed({ kind: "turn-started", turnId: "p1" });
     puppet.feed({ kind: "text-delta", text: "Added retries." });
     puppet.feed({
@@ -820,7 +820,9 @@ describe("agent session manager", () => {
     expect(prepared.ok).toBe(true);
     expect(await readPendingInheritance(base, CHILD_WT)).not.toBeNull();
 
-    expect((await send(CHILD_WT, "Please continue.")).accepted).toBe(true);
+    expect((await send(CHILD_WT, CHILD_WT, "Please continue.")).accepted).toBe(
+      true
+    );
     const prompt = puppet.input()?.prompt ?? "";
     // Starts with the brief (its heading names the parent label)...
     expect(prompt.startsWith("# feat/parent")).toBe(true);
@@ -866,7 +868,7 @@ describe("agent session manager", () => {
       driverId: "claude-code",
       tier: "accept-edits",
     });
-    await send(PARENT_WT, "Add retry logic to the sync engine.");
+    await send(PARENT_WT, PARENT_WT, "Add retry logic to the sync engine.");
     puppet.input()?.onSessionId("parent-s1");
     puppet.feed({
       costUsd: null,
@@ -896,7 +898,9 @@ describe("agent session manager", () => {
       (await loadRegistry(base)).worktrees[CHILD_WT]?.inherited?.mode
     ).toBe("full");
 
-    expect((await send(CHILD_WT, "Please continue.")).accepted).toBe(true);
+    expect((await send(CHILD_WT, CHILD_WT, "Please continue.")).accepted).toBe(
+      true
+    );
     expect(puppet.input()?.resume).toEqual({
       fork: true,
       sessionId: "parent-s1",
@@ -945,7 +949,7 @@ describe("agent session manager", () => {
       driverId: "claude-code",
       tier: "accept-edits",
     });
-    await send(PARENT_WT, "Add retry logic to the sync engine.");
+    await send(PARENT_WT, PARENT_WT, "Add retry logic to the sync engine.");
     puppet.feed({ kind: "turn-started", turnId: "p1" });
     puppet.feed({ kind: "text-delta", text: "Added retries." });
     puppet.feed({
@@ -979,7 +983,9 @@ describe("agent session manager", () => {
       "claude-code"
     );
 
-    expect((await send(CHILD_WT, "Please continue.")).accepted).toBe(true);
+    expect((await send(CHILD_WT, CHILD_WT, "Please continue.")).accepted).toBe(
+      true
+    );
     const input = puppet.input();
     expect(input?.inject).toBeUndefined();
     // The fork precondition never engaged: no `fork` key at all, sessionId
@@ -1048,7 +1054,7 @@ describe("agent session manager", () => {
       driverId: "claude-code",
       tier: "accept-edits",
     });
-    await send(PARENT_WT, "Add retry logic to the sync engine.");
+    await send(PARENT_WT, PARENT_WT, "Add retry logic to the sync engine.");
     puppet.feed({
       costUsd: null,
       kind: "turn-done",
@@ -1072,7 +1078,7 @@ describe("agent session manager", () => {
         parentLabel: "feat/parent-race",
         parentWorktree: PARENT_WT,
       }),
-      send(CHILD_WT, "Please continue."),
+      send(CHILD_WT, CHILD_WT, "Please continue."),
     ]);
     expect(prepared.ok).toBe(true);
     expect(sent.accepted).toBe(true);
@@ -1135,7 +1141,7 @@ describe("agent session manager", () => {
       driverId: "claude-code",
       tier: "accept-edits",
     });
-    await send(PARENT_WT, "Add retry logic to the sync engine.");
+    await send(PARENT_WT, PARENT_WT, "Add retry logic to the sync engine.");
     puppet.feed({
       costUsd: null,
       kind: "turn-done",
@@ -1205,7 +1211,7 @@ describe("agent session manager", () => {
       driverId: "claude-code",
       tier: "accept-edits",
     });
-    await send(PARENT_WT, "Add retry logic to the sync engine.");
+    await send(PARENT_WT, PARENT_WT, "Add retry logic to the sync engine.");
     puppet.feed({
       costUsd: null,
       kind: "turn-done",
