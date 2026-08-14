@@ -52,6 +52,11 @@ const config: ForgeConfig = {
       // inside the asar archive.
       unpack: "**/node_modules/node-pty/**",
     },
+    // Shared with Dotwise Canvas rather than a second drawing of the same
+    // mark: one icns, copied in, so the two apps cannot drift apart in the
+    // Dock. The extension is left off — packager picks .icns or .ico per
+    // platform, and naming one would break the other.
+    icon: "./images/dotwise",
     ignore: (file) => !shouldPackage(file),
   },
   plugins: [
