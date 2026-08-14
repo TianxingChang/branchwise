@@ -131,7 +131,7 @@ test("the shell survives switching panel tabs", async () => {
   // Leave a marker in the shell's own state, not just on screen.
   await runInTerminal("MARKER=alive-$$");
 
-  await page.getByRole("button", { name: "Diff" }).click();
+  await page.getByRole("button", { exact: true, name: "Diff" }).click();
   await expect(screen()).toBeHidden();
 
   await page.getByRole("button", { exact: true, name: "Terminal" }).click();

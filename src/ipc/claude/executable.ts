@@ -10,7 +10,11 @@ export function resolveClaudeExecutable(
   env: NodeJS.ProcessEnv = process.env,
   // Injectable so tests never depend on what is really installed at the
   // fixed system paths on the machine running them.
-  systemCandidates: string[] = DEFAULT_SYSTEM_CANDIDATES
+  systemCandidates: string[] = DEFAULT_SYSTEM_CANDIDATES,
+  // Same reason, one step further out: the fallback spawns the real login
+  // shell, so a test asserting "nothing is installed" would otherwise find
+  // whatever the machine running it happens to have.
+  fallbackPath?: () => Promise<string[]>
 ): Promise<string | null> {
   const home = env.HOME ?? "";
   return findExecutable({
@@ -26,5 +30,6 @@ export function resolveClaudeExecutable(
         : []),
       ...systemCandidates,
     ],
+    fallbackPath,
   });
 }

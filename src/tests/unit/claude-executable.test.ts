@@ -19,6 +19,8 @@ async function fakeBinary(name: string): Promise<string> {
   return file;
 }
 
+const noFallback = () => Promise.resolve<string[]>([]);
+
 describe("resolveClaudeExecutable", () => {
   // systemCandidates is [] throughout: the default brew paths are real
   // machine state these tests must not depend on.
@@ -51,8 +53,24 @@ describe("resolveClaudeExecutable", () => {
   });
 
   test("returns null when nothing is installed", async () => {
+    // The login-shell fallback is stubbed out: unstubbed it would spawn the
+    // real shell and find whatever this machine has, which is the opposite of
+    // what the test is asking.
     expect(
-      await resolveClaudeExecutable({ HOME: base, PATH: base }, [])
+      await resolveClaudeExecutable({ HOME: base, PATH: base }, [], noFallback)
     ).toBeNull();
+  });
+
+  test("falls back to the login shell's PATH", async () => {
+    // A CLI under a version manager's own prefix is in none of the fixed
+    // candidates and not on a Finder-launched app's PATH — but it is on the
+    // PATH a terminal would have, which is where the user found it.
+    const elsewhere = await fakeBinary("claude");
+
+    expect(
+      await resolveClaudeExecutable({ HOME: base, PATH: "" }, [], () =>
+        Promise.resolve([path.dirname(elsewhere)])
+      )
+    ).toBe(elsewhere);
   });
 });

@@ -7,13 +7,20 @@ import { AutoUnpackNativesPlugin } from "@electron-forge/plugin-auto-unpack-nati
 import { FusesPlugin } from "@electron-forge/plugin-fuses";
 import { VitePlugin } from "@electron-forge/plugin-vite";
 import type { ForgeConfig } from "@electron-forge/shared-types";
-import { verifyPackagedNatives } from "./scripts/verify-packaged-natives";
+import { verifyPackagedDependencies } from "./scripts/verify-packaged-natives";
 
 /**
  * The Vite plugin packages only `.vite`, on the assumption that everything is
- * bundled. Native modules cannot be — they have to ship as real files.
+ * bundled. Anything the main bundle marks external has to ship as real files.
+ *
+ * Native modules cannot be bundled at all. The agent SDK could be, but is
+ * deliberately not: it is loaded by a dynamic import so the main bundle does
+ * not pay for it until an agent runs, and inlining it would undo that. Being
+ * external and unpackaged is what produced "Cannot find package
+ * '@anthropic-ai/claude-agent-sdk'" at the first message in a packaged build.
  */
 const PACKAGED_NODE_MODULES = [
+  "/node_modules/@anthropic-ai",
   "/node_modules/node-addon-api",
   "/node_modules/node-pty",
 ];
@@ -29,7 +36,7 @@ const shouldPackage = (file: string) =>
 const config: ForgeConfig = {
   hooks: {
     postPackage: (_forgeConfig, result) => {
-      verifyPackagedNatives(result);
+      verifyPackagedDependencies(result);
       return Promise.resolve();
     },
   },

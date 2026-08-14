@@ -72,7 +72,7 @@ test.beforeAll(async () => {
     .locator(".branchwise-canvas")
     .getByText("main", { exact: true })
     .click();
-  await page.getByRole("button", { name: "Artifact" }).click();
+  await page.getByRole("button", { exact: true, name: "Artifact" }).click();
 });
 
 test.afterAll(async () => {

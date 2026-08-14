@@ -8,7 +8,10 @@ const DEFAULT_SYSTEM_CANDIDATES = [
 
 export function resolveCodexExecutable(
   env: NodeJS.ProcessEnv = process.env,
-  systemCandidates: string[] = DEFAULT_SYSTEM_CANDIDATES
+  systemCandidates: string[] = DEFAULT_SYSTEM_CANDIDATES,
+  // The fallback spawns the real login shell, so a test asserting "nothing is
+  // installed" would otherwise find whatever the machine happens to have.
+  fallbackPath?: () => Promise<string[]>
 ): Promise<string | null> {
   const home = env.HOME ?? "";
   return findExecutable({
@@ -19,5 +22,6 @@ export function resolveCodexExecutable(
       ...(home ? [path.join(home, ".local", "bin", "codex")] : []),
       ...systemCandidates,
     ],
+    fallbackPath,
   });
 }
