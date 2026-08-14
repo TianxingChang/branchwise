@@ -1,6 +1,9 @@
 import { Handle, type NodeProps, Position } from "@xyflow/react";
 import { Check, GitBranch, Lock, Plus, Trash2, Unlink } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import InheritControl, {
+  type InheritMode,
+} from "@/components/canvas/inherit-control";
 import { NODE_HEIGHT, NODE_WIDTH } from "@/lib/branch/layout";
 import { detachedLabel } from "@/lib/git/naming";
 import { useAgentStore, worktreeActivity } from "@/stores/agent-store";
@@ -33,7 +36,7 @@ export type BranchNodeData = {
 const CARD_SIZE = { height: NODE_HEIGHT, width: NODE_WIDTH };
 
 /** The draft card's three-way choice for seeding the new worktree's agent. */
-export type InheritMode = "none" | "brief" | "full";
+export type { InheritMode } from "@/components/canvas/inherit-control";
 
 export function branchLabel(node: CanvasNode): string {
   return node.branch ?? detachedLabel(node.head);
@@ -316,70 +319,6 @@ function BranchNameEditor({
         </div>
       ) : null}
     </div>
-  );
-}
-
-/** The compact 无/简报/完整历史 segmented control offered under the draft
- * card's name input, once the parent has a conversation worth inheriting. */
-function InheritControl({
-  onChange,
-  value,
-}: {
-  onChange: (mode: InheritMode) => void;
-  value: InheritMode;
-}) {
-  const selectNone = useCallback(() => onChange("none"), [onChange]);
-  const selectBrief = useCallback(() => onChange("brief"), [onChange]);
-  const selectFull = useCallback(() => onChange("full"), [onChange]);
-
-  return (
-    <fieldset
-      aria-label="Inherit conversation"
-      className="m-0 flex items-center gap-1 border-0 p-0"
-    >
-      <InheritOption
-        label="无"
-        onSelect={selectNone}
-        selected={value === "none"}
-      />
-      <InheritOption
-        label="简报"
-        onSelect={selectBrief}
-        selected={value === "brief"}
-      />
-      <InheritOption
-        label="完整历史"
-        onSelect={selectFull}
-        selected={value === "full"}
-      />
-    </fieldset>
-  );
-}
-
-function InheritOption({
-  label,
-  onSelect,
-  selected,
-}: {
-  label: string;
-  onSelect: () => void;
-  selected: boolean;
-}) {
-  return (
-    <button
-      aria-pressed={selected}
-      className={cn(
-        "rounded-full border px-1.5 py-0.5 font-mono text-[10px] transition-colors",
-        selected
-          ? "border-bw-accent/45 text-bw-accent"
-          : "border-bw-hairline text-bw-muted hover:text-bw-ink"
-      )}
-      onClick={onSelect}
-      onMouseDown={preventBlur}
-      type="button"
-    >
-      {label}
-    </button>
   );
 }
 

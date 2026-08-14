@@ -21,6 +21,7 @@ import {
   wouldCreateCycle,
 } from "@/lib/git/resolve";
 import type {
+  BranchView,
   CanvasNode,
   GraphDoc,
   PanelPosture,
@@ -93,6 +94,8 @@ interface RepoStoreState {
     childBranch: string,
     parentBranch: string
   ) => MutationResult;
+  /** Graph or indented list, for the region left of the panel. */
+  setView: (folder: string, view: BranchView) => void;
 }
 
 const EMPTY: ProjectState = {
@@ -444,5 +447,8 @@ export const useRepoStore = create<RepoStoreState>()((set, get) => {
       }));
       return { ok: true };
     },
+
+    setView: (folder, view) =>
+      mutateDoc(folder, (doc) => (doc.view === view ? doc : { ...doc, view })),
   };
 });

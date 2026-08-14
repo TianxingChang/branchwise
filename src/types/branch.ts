@@ -87,6 +87,17 @@ export const panelStateSchema = z.object({
   width: z.number().min(0),
 });
 
+/**
+ * How the repository is drawn: as a graph, or as an indented list.
+ *
+ * The mode decides only what fills the region left of the panel — the posture
+ * still decides how wide that region is. A tree reads at every width the
+ * postures produce, including the 208px rail of `full`, where a graph does
+ * not; that is the case the mode exists for.
+ */
+export const BRANCH_VIEWS = ["canvas", "tree"] as const;
+export type BranchView = (typeof BRANCH_VIEWS)[number];
+
 export const GRAPH_DOC_VERSION = 2;
 
 /**
@@ -99,6 +110,8 @@ export const graphDocSchema = z.object({
   /** Worktree path of the selected node, or null for "nothing selected". */
   selectedWorktree: z.string().nullable(),
   version: z.literal(GRAPH_DOC_VERSION),
+  /** Defaulted, like posture was: docs written before this keep parsing. */
+  view: z.enum(BRANCH_VIEWS).default("canvas"),
 });
 
 export type WorktreeEntry = z.infer<typeof worktreeEntrySchema>;
