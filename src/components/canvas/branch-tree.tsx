@@ -208,8 +208,15 @@ function TreeRow({
   projectFolder: string;
   showDraftBelow: boolean;
 }) {
-  const activity = useAgentStore((state) =>
-    worktreeActivity(state.sessions, node.id)
+  // Selecting `sessions` and folding outside the selector, not folding inside
+  // it. worktreeActivity builds a fresh object every call, and the store hook
+  // is backed by useSyncExternalStore, whose snapshot has to be stable — a new
+  // object per render reads as a new value per render, which is an infinite
+  // re-render rather than a stale badge.
+  const sessions = useAgentStore((state) => state.sessions);
+  const activity = useMemo(
+    () => worktreeActivity(sessions, node.id),
+    [node.id, sessions]
   );
 
   const handleSelect = useCallback(() => {
